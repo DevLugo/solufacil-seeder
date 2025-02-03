@@ -4,6 +4,7 @@ import { seedLoans } from './loan';
 import { seedExpenses } from './expenses';
 import { seedAccounts } from './account';
 import { seedLeads } from './leads';
+import { seedPayments } from './payments';
 
 export const prisma = new PrismaClient();
 
@@ -26,6 +27,7 @@ async function main() {
     await seedLeads(route2.id);
     await seedLoans();
     await seedExpenses();
+    await seedPayments(route2.id);
     
     console.log('Datos guardados en la base de datos');
     return;
