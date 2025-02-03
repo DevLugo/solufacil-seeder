@@ -24,6 +24,7 @@ model Employee {
   routes                    Route?                @relation("Employee_routes", fields: [routesId], references: [id])
   routesId                  String?               @map("routes")
   expenses                  Expense[]             @relation("Expense_employee")
+  transactions              Transaction[]         @relation("Transaction_lead")
   personalData              PersonalData?         @relation("Employee_personalData", fields: [personalDataId], references: [id])
   personalDataId            String?               @unique @map("personalData")
   loan                      Loan[]                @relation("Loan_grantor")
@@ -211,6 +212,9 @@ model Transaction {
   type                 String?
   incomeSource         String?
   expenseSource        String?
+  description          String       @default("")
+  lead                 Employee?    @relation("Transaction_lead", fields: [leadId], references: [id])
+  leadId               String?      @map("lead")
   sourceAccount        Account?     @relation("Transaction_sourceAccount", fields: [sourceAccountId], references: [id])
   sourceAccountId      String?      @map("sourceAccount")
   destinationAccount   Account?     @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])
@@ -219,6 +223,7 @@ model Transaction {
   loanId               String?      @map("loan")
   loanPayment          LoanPayment? @relation("LoanPayment_transaction")
 
+  @@index([leadId])
   @@index([sourceAccountId])
   @@index([destinationAccountId])
   @@index([loanId])
