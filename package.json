@@ -1,0 +1,27 @@
+{
+  "name": "my-ts-node-prisma-app",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "ts-node src/standaloneApp.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "run-standalone": "ts-node src/standaloneApp.ts"
+  },
+  "dependencies": {
+    "prisma": "4.0.0",
+    "@prisma/client": "4.0.0",
+    "express": "4.17.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "typescript": "4.5.4",
+    "ts-node": "10.4.0",
+    "@types/node": "16.11.7",
+    "dotenv": "^16.4.7",
+    "@types/express": "4.17.13"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
