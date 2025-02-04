@@ -192,6 +192,7 @@ model LoanPayment {
   receivedAt            DateTime?            @default(now())
   createdAt             DateTime?            @default(now())
   updatedAt             DateTime?
+  oldLoanId             String?
   loan                  Loan?                @relation("LoanPayment_loan", fields: [loanId], references: [id])
   loanId                String?              @map("loan")
   transaction           Transaction?         @relation("LoanPayment_transaction", fields: [transactionId], references: [id])

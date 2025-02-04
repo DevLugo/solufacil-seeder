@@ -32,16 +32,30 @@ export const getEmployeeIdsMap = async (): Promise<{ [key: string]: string }> =>
     return employeeIdsMap;
 };
 
-export const getLoanIdsMap = async (routeId: string): Promise<{ [key: string]: string }> => {
-    const loanIdsMap: { [key: string]: string } = {};
+export const getLoanIdsMap = async (routeId: string): Promise<{ [key: string]: {
+    id: string,
+    weeks: number|undefined,
+    totalProfit: number|undefined,
+    rate: number|undefined,
+    totalAmountToPay: number|undefined,
+} }> => {
+    const loanIdsMap: { [key: string]: { id: string, weeks: number | undefined, rate: number | undefined, totalProfit: number | undefined, totalAmountToPay: number | undefined } } = {};
     const loansFromDb = await prisma.loan.findMany({
-        
+        include:{
+            loantype: true,
+        }
     });
     console.log('loansFromDb', loansFromDb.length);
     /* console.log('loansFromDb', loansFromDb); */
     loansFromDb.forEach((l) => {
         if(l.oldId){
-            loanIdsMap[l.oldId] = l.id;
+            loanIdsMap[l.oldId] = {
+                totalProfit: l.loantype ? Number(l.requestedAmount) * Number(l.loantype.rate) : undefined,
+                id: l.id,
+                weeks: l.loantype?.weekDuration ?? undefined,
+                rate: l.loantype ? (l.loantype.rate !== null ? Number(l.loantype.rate) : undefined) : undefined,
+                totalAmountToPay: Number(l.requestedAmount) + (l.profitAmount !== null ? Number(l.profitAmount) : 0)
+            };
         }
     });
     return loanIdsMap;

@@ -28,13 +28,9 @@ async function main() {
     await seedLoans();
     await seedExpenses();
     await seedPayments(route2.id);
-    
+    //TODO: save comision and earned amount on payments
     console.log('Datos guardados en la base de datos');
     return;
-    
-    
-
-    
 }
 
 main()

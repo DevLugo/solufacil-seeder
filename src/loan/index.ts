@@ -139,7 +139,7 @@ const saveDataToDB = async (loans: Loan[], accountId: string) => {
                     avalName: item.avalName,
                     avalPhone: String(item.avalPhone),
                     finishedDate: item.finishedDate,
-
+                    profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
                 }
             });
         });
@@ -153,57 +153,77 @@ const saveDataToDB = async (loans: Loan[], accountId: string) => {
         [key: string]: {
             id: string,
             borrowerId: string,
+            profitAmount?: string,
         }
     } = {};
     loansFromDb.forEach((item) => {
-        loanIdsMap[item?.oldId!] = {
+        if(item.oldId === '6141'){
+            console.log('====6141===',item);
+        }
+        loanIdsMap[String(item?.oldId!)] = {
             id: item.id,
             borrowerId: item.borrowerId ?? '',
+            profitAmount: item.profitAmount?.toString() ?? '0',
         };
     });
-
+    //console.log('loanIdsMap', Object.keys(loanIdsMap).length);
     // Insertar los préstamos renovados
     const batchesRenovated = chunkArray(renovatedLoans, 1000);
     console.log('batchesRenovated', batchesRenovated.length);
+
+
+
     for (const batch of batchesRenovated) {
         console.log('Renovatedbatch', batch.length);
-        const transactionPromises = batch.map(item => {
-            const previousLoan = item.previousLoanId && loanIdsMap[item.previousLoanId];
-            if (!previousLoan) {
-                //console.log('====NO PREVIOUS LOAN ID======');
+        const transactionPromises = []; 
+        for (const item of batch) {
+            const existPreviousLoan = item.previousLoanId && loanIdsMap[item.previousLoanId];
+            if (!item.previousLoanId) {
+                console.log('====NO PREVIOUS LOAN ID======', item);
+                continue;
             }
-            return prisma.loan.create({
-                data: {
-                    oldId: item.id.toString(),
-                    signDate: item.givedDate,
-                    amountGived: item.givedAmount.toString(),
-                    requestedAmount: item.requestedAmount.toString(),
-                    loantype: {
-                        connect: {
-                            id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
+            const previousLoan = loanIdsMap[String(item.previousLoanId)];
+            
+            transactionPromises.push(
+                prisma.loan.create({
+                    data: {
+                        oldId: item.id.toString(),
+                        signDate: item.givedDate,
+                        amountGived: item.givedAmount.toString(),
+                        requestedAmount: item.requestedAmount.toString(),
+                        loantype: {
+                            connect: {
+                                id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
+                            },
                         },
+                        lead: {
+                            connect: {
+                                id: employeeIdsMap[item.leadId],
+                            }
+                        },
+                        avalName: item.avalName,
+                        avalPhone: String(item.avalPhone),
+                        finishedDate: item.finishedDate,
+                        borrower: previousLoan ? {
+                            connect: {
+                                id: previousLoan.borrowerId,
+                            }
+                        } : undefined,
+                        previousLoan: previousLoan ? {
+                            connect: {
+                                id: previousLoan.id,
+                            }
+                        } : undefined,
+                        //TODO: calculate the renovation profit amount
+                        profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
                     },
-                    lead: {
-                        connect: {
-                            id: employeeIdsMap[item.leadId],
-                        }
-                    },
-                    avalName: item.avalName,
-                    avalPhone: String(item.avalPhone),
-                    finishedDate: item.finishedDate,
-                    borrower: previousLoan ? {
-                        connect: {
-                            id: previousLoan.borrowerId,
-                        }
-                    } : undefined,
-                    previousLoan: previousLoan ? {
-                        connect: {
-                            id: previousLoan.id,
-                        }
-                    } : undefined,
-                },
-            })
-        });
+                })
+            );
+        };
+        console.log("=====================");
+        console.log('transactionPromises', transactionPromises.length);
+        console.log("=====================");
+
         await prisma.$transaction(transactionPromises);
     }
     const totalGivedAmount = await prisma.loan.aggregate({
