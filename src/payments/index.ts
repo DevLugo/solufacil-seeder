@@ -15,7 +15,7 @@ const excelColumnsRelationship: ExcelPaymentRelationship = {
     'E': 'type',
 };
 
-const extractLoanData = () => {
+export const extractPaymentData = () => {
     const excelFilePath = './ruta2.xlsm';
     const tabName = 'ABONOS';
 
@@ -102,6 +102,8 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
     console.log('Payments saved');
     const loansFromDb = await prisma.loan.findMany({
         include: {
+            payments: true,
+            loantype: true,
             previousLoan: {
                 include: {
                     payments: true,
@@ -110,8 +112,9 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
         }
     });
 
+    
+    console.log("STARTING LOAN PROFIT UPDATE...");
     const profitUpdateQueries = [];
-
     for (const l of loansFromDb) {
         if(!loanIdsMap[l.oldId ?? '']){
             //console.log('No se encontro el prestamo', item, item.oldId, loanIdsMap[item.oldId]);  
@@ -129,22 +132,12 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
         
         
         const profitOfRenovatedLoan = (l.profitAmount?.toNumber() ?? 0) + previousLoanProfitPendingToPay;
-        if(l.oldId === '6543'){
+        if(l.oldId === '5805' || l.oldId === '6197'){
             console.log("&&&&&&&&&&&&&&& current loan", l)
             console.log("&&&&&&&&&&&&&&& previous loan", previousLoan)
             console.log("&&&&&&&&&&&&&&& previousLoanId", l.previousLoanId)
             console.log("&&&&&&&&&&&&&&& previosLoanPayedProfit", previosLoanPayedProfit)
             console.log("&&&&&&&&&&&&&&& previousLoanProfitPendingToPay", previousLoanProfitPendingToPay)
-            const a = await prisma.loan.findUnique({
-                where: {
-                    oldId: String(l.previousLoanId),
-                },
-                include: {
-                    payments: true,
-                }
-            });
-            console.log("&&&&&&&&&&&&&&&", a);
-
         }
         if(profitOfRenovatedLoan){
             profitUpdateQueries.push(
@@ -160,13 +153,37 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
         }
     }
     await prisma.$transaction(profitUpdateQueries);
-    console.log('Payments profit updated');
-    
-    
+    console.log("FINISHED LOAN PROFIT UPDATE");
+
+    //TODO: save  earned amount on payments
+    const paymentProfitUpdateQueries = [];
+    console.log("STARTING PAYMENT PROFIT UPDATE...");
+    for(const l of loansFromDb){
+        const payments = l.payments;
+        
+        for(const p of payments){
+            //const profitAmount = (item.amount * (loanIdsMap[item.oldId]?.totalProfit ?? 0)) / (loanIdsMap[item.oldId]?.totalAmountToPay ?? 1);
+            const newProfit = Number(p.amount ?? 0) * (l.profitAmount?.toNumber() ?? 0) / ((l.requestedAmount?.toNumber() ?? 1) * (1 + (l.loantype?.rate?.toNumber() ?? 0)));
+            if(newProfit){
+                paymentProfitUpdateQueries.push(
+                    prisma.loanPayment.update({
+                        where: {
+                            id: p.id,
+                        },
+                        data: {
+                            profitAmount: newProfit,
+                        }
+                    })
+                );
+            }
+        };
+    }
+    await prisma.$transaction(paymentProfitUpdateQueries);
+    console.log("FINISHED PAYMENT PROFIT UPDATE");
 };
 
 export const seedPayments = async (routeId: string) => {
-    const payments = extractLoanData();
+    const payments = extractPaymentData();
         const mainAccount = await prisma.account.findFirst({
             where: {
                 name: 'Caja Merida',

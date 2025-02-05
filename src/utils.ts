@@ -1,3 +1,4 @@
+import { Payments } from "./payments/types";
 import { prisma } from "./standaloneApp";
 
 const xlsx = require('xlsx');
@@ -14,9 +15,22 @@ export const chunkArray: ChunkArray = (array, size) => {
     return chunkedArr;
 };
 
+export const groupPaymentsByOldLoanId = (payments: Payments[]) => {
+    return payments.reduce((acc: { [key: string]: Payments[] }, payment) => {
+        if (!acc[payment.oldId]) {
+            acc[payment.oldId] = [];
+        }
+        acc[payment.oldId].push(payment);
+        return acc;
+    }, {});
+};
+
 // Función para convertir números de serie de Excel a fechas
-export const convertExcelDate = (serial: number): Date => {
+export const convertExcelDate = (serial: number): Date|null => {
     const date = xlsx.SSF.parse_date_code(serial);
+    if (!date || !date.y || !date.m || !date.d) {
+        return null;
+    }    
     return new Date(date.y, date.m - 1, date.d);
 };
 
@@ -64,5 +78,4 @@ export const cleanUpDb = async () => {
     await prisma.transaction.deleteMany({});
     await prisma.loanPayment.deleteMany({});
     console.log('Datos eliminados de la base de datos');
-
 }

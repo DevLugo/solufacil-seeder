@@ -16,6 +16,7 @@ export interface Loan {
     avalName: string;
     avalPhone: string;
     titularPhone: string;
+    badDebtDate: Date;
 }
 
 export interface ExcelLoanRelationship {

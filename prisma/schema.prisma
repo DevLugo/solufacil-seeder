@@ -156,7 +156,8 @@ model Loan {
   loantype               Loantype?           @relation("Loan_loantype", fields: [loantypeId], references: [id])
   loantypeId             String?             @map("loantype")
   signDate               DateTime            @default(now())
-  profitAmount           Decimal?            @postgresql.Decimal(18, 4)
+  badDebtDate            DateTime?
+  profitAmount           Decimal?            @postgresql.Decimal(10, 2)
   avalName               String              @default("")
   avalPhone              String              @default("")
   grantor                Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])
@@ -185,10 +186,10 @@ model Loan {
 
 model LoanPayment {
   id                    String               @id @default(cuid())
-  amount                Decimal?             @postgresql.Decimal(18, 4)
+  amount                Decimal?             @postgresql.Decimal(10, 2)
   comission             Decimal?             @postgresql.Decimal(18, 4)
-  profitAmount          Decimal?             @postgresql.Decimal(18, 4)
-  returnToCapital       Decimal?             @postgresql.Decimal(18, 4)
+  profitAmount          Decimal?             @postgresql.Decimal(10, 2)
+  returnToCapital       Decimal?             @postgresql.Decimal(10, 2)
   receivedAt            DateTime?            @default(now())
   createdAt             DateTime?            @default(now())
   updatedAt             DateTime?
