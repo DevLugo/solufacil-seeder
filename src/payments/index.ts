@@ -1,5 +1,3 @@
-import { create } from "domain";
-import { ExcelExpensesRow } from "../expenses/types";
 import { getLoanIdsMap } from "../leads";
 import { ExcelRow } from "../loan/types";
 import { prisma } from "../standaloneApp";
@@ -13,6 +11,7 @@ const excelColumnsRelationship: ExcelPaymentRelationship = {
     'C': 'paymentDate',
     'D': 'amount',
     'E': 'type',
+    'F': 'description',
 };
 
 export const extractPaymentData = () => {
@@ -88,7 +87,7 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
                                 }
                             },
                             type: 'INCOME',
-                            incomeSource: 'LOAN_PAYMENT',
+                            incomeSource: 'CASH_LOAN_PAYMENT',
                         }
                     }
                 }

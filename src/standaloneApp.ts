@@ -49,7 +49,7 @@ async function main() {
     });
     if (route2CashAccount.account?.id && route2BankAccount.account?.id) {
         await seedLeads(route2CashAccount.id);
-        await seedLoans(route2CashAccount.account?.id);
+        await seedLoans(route2CashAccount.account?.id, route2BankAccount.account?.id);
         await seedExpenses(route2CashAccount.account?.id, route2BankAccount.account?.id);
         await seedNomina(route2BankAccount.account?.id);
         //await seedPayments(route2.id);

@@ -112,7 +112,11 @@ export const getYearResume = async (cashAccountId: string, bankAccountId: string
             acc[key].totalExpenses += Number(transaction.amount);
         } else if (transaction.type === 'EXPENSE' && transaction.expenseSource === 'NOMINA_SALARY') {
             acc[key].totalNomina += Number(transaction.amount);
-        } else if (transaction.type === 'INCOME' && transaction.incomeSource === 'LOAN_PAYMENT') {
+        } else if (
+            transaction.type === 'INCOME' && 
+            transaction.incomeSource === 'CASH_LOAN_PAYMENT' ||
+            transaction.incomeSource === 'BANK_LOAN_PAYMENT'
+        ) {
             acc[key].totalIncomes += Number(transaction.loanPayment?.profitAmount);
         } else if(transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED'){
             acc[key].reInvertido += Number(transaction.amount);

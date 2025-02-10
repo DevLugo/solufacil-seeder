@@ -58,7 +58,7 @@ const extractLoanData = () => {
     return loansData;
 };
 
-const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments[]) => {
+const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: string, payments: Payments[]) => {
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
     console.log('renovatedLoans', renovatedLoans.length);
@@ -156,13 +156,14 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                                 profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                                 returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                 type: payment.type,
+                                
                                 transaction: {
                                     create: {
                                         amount: payment.amount,
                                         date: payment.paymentDate,
-                                        destinationAccountId: accountId,
+                                        destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
                                         type: 'INCOME',
-                                        incomeSource: 'LOAN_PAYMENT',
+                                        incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
                                     }
                                 }
                             }
@@ -180,7 +181,7 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                         create: {
                             amount: item.givedAmount,
                             date: item.givedDate,
-                            sourceAccountId: accountId,
+                            sourceAccountId: cashAccountId,
                             type: 'EXPENSE',
                             expenseSource: 'LOAN_GRANTED',
                         }
@@ -327,9 +328,9 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                                 create: {
                                     amount: payment.amount,
                                     date: payment.paymentDate,
-                                    destinationAccountId: accountId,
+                                    destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
                                     type: 'INCOME',
-                                    incomeSource: 'LOAN_PAYMENT',
+                                    incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT': 'CASH_LOAN_PAYMENT',
                                 }
                             }
                         }
@@ -339,7 +340,7 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                     create: {
                         amount: item.givedAmount,
                         date: item.givedDate,
-                        sourceAccountId: accountId,
+                        sourceAccountId: cashAccountId,
                         type: 'EXPENSE',
                         expenseSource: 'LOAN_GRANTED',
                     }
@@ -372,11 +373,11 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
     }
 };
 
-export const seedLoans = async (accountId: string) => {
+export const seedLoans = async (cashAccountId: string, bankAccountId: string) => {
     const loanData = extractLoanData();
     const payments = extractPaymentData();
-    if (accountId) {
-        await saveDataToDB(loanData, accountId, payments);
+    if (cashAccountId) {
+        await saveDataToDB(loanData, cashAccountId, bankAccountId, payments);
         console.log('Loans seeded');
     } else {
         console.log('No se encontro la cuenta principal');

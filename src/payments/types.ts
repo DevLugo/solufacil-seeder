@@ -4,6 +4,7 @@ export interface Payments {
     paymentDate: Date;
     amount: number;
     type: string;
+    description: string;
 }
 
 export interface ExcelPaymentRelationship {
