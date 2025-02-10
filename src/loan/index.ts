@@ -106,11 +106,11 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                             personalData: {
                                 create: {
                                     fullName: String(item.fullName),
-                                    phones: {
+                                    phones: item.titularPhone && !["NA", "N/A", "N", undefined, "undefined", "PENDIENTE", ""].includes(item.titularPhone) ? {
                                         create: {
-                                            number: String(item.titularPhone)
+                                            number: item.titularPhone ? String(item.titularPhone) : ""
                                         }
-                                    }
+                                    }: undefined,
                                 }
                             },
                         },
@@ -173,7 +173,7 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                     amountGived: item.givedAmount.toString(),
                     requestedAmount: item.requestedAmount.toString(),
                     avalName: item.avalName,
-                    avalPhone: String(item.avalPhone),
+                    avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                     finishedDate: item.finishedDate,
                     profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
                     transaction: {
@@ -284,7 +284,7 @@ const saveDataToDB = async (loans: Loan[], accountId: string, payments: Payments
                     }
                 },
                 avalName: item.avalName,
-                avalPhone: String(item.avalPhone),
+                avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                 finishedDate: item.finishedDate,
                 borrower: previousLoan?.borrowerId ? {
                     connect: {

@@ -77,5 +77,6 @@ export const cleanUpDb = async () => {
     await prisma.account.deleteMany({});
     await prisma.transaction.deleteMany({});
     await prisma.loanPayment.deleteMany({});
+    await prisma.phone.deleteMany({});
     console.log('Datos eliminados de la base de datos');
 }

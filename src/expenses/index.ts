@@ -67,7 +67,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                 console.log("NO HAY AMOUNT", item);
                 return;
             }
-
+            
             return prisma.transaction.create({
                 data: {
                     amount: item.amount.toString(),
@@ -77,20 +77,14 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                             id: accountId,
                         }
                     },
-                    //sourceAccountId: accountId,
                     description: String(item.description),
-                    /* lead: item.leadId ? {
-                        connect: {
-                            id: employeeIdsMap[item.leadId],
-                        }
-                    } : undefined, */
-                    //leadId: item.leadId ? employeeIdsMap[item.leadId] : undefined,
                     lead: item.leadId && employeeIdsMap[item.leadId] ? {
                         connect: {
                             id: employeeIdsMap[item.leadId],
                         }
                     } : undefined,
                     type: 'EXPENSE',
+                    expenseSource: item.description === "VIATICOS"? "VIATIC": item.description === "SUELDO" ? "EXTERNAL_SALARY" : null,
                 }
             })});
         const cleanedData = transactionPromises.filter(e => e !== undefined);
