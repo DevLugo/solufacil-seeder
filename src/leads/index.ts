@@ -45,8 +45,6 @@ export const getLoanIdsMap = async (routeId: string): Promise<{ [key: string]: {
             loantype: true,
         }
     });
-    console.log('loansFromDb', loansFromDb.length);
-    /* console.log('loansFromDb', loansFromDb); */
     loansFromDb.forEach((l) => {
         if(l.oldId){
             loanIdsMap[l.oldId] = {

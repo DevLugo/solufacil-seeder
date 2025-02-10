@@ -2,30 +2,27 @@ import { getEmployeeIdsMap } from "../leads";
 import { ExcelRow } from "../loan/types";
 import { prisma } from "../standaloneApp";
 import { chunkArray, convertExcelDate } from "../utils";
-import { ExcelExpensesRow, Expense } from "./types";
+import { ExcelExpensesRow, Expense } from "../expenses/types";
 const xlsx = require('xlsx');
 
 const expensesColumnsRelationship: ExcelExpensesRow = {
     'B': 'fullName',
     'C': 'date',
     'D': 'amount',
-    'K': 'leadId',
-    'E': 'accountType',
-    'M': 'description',
 };
 
-const extractExpensesData = () => {
+const extractNominaData = () => {
     const excelFilePath = './ruta2.xlsm';
-    const tabName = 'GASTOS';
+    const tabName = 'NOMINA';
 
     // Leer el archivo Excel
     const workbook = xlsx.readFile(excelFilePath);
 
     // Obtener la hoja especificada
-    const sheetExpenses = workbook.Sheets[tabName];
+    const sheetNomina = workbook.Sheets[tabName];
 
     // Convertir la hoja a formato JSON
-    const data = xlsx.utils.sheet_to_json(sheetExpenses, { header: 1 });
+    const data = xlsx.utils.sheet_to_json(sheetNomina, { header: 1 });
     
 
 
@@ -45,26 +42,20 @@ const extractExpensesData = () => {
     return loansData;
 };
 
-const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string) => {
+const saveExpensesOnDB = async (data: Expense[], bankAccountId: string) => {
     const batches = chunkArray(data, 1000);
     
     const employeeIdsMap = await getEmployeeIdsMap();
     
     for (const batch of batches) {
         const transactionPromises = batch.map(item => {
-            let accountId;
-            if (item.accountType === 'GASTO BANCO' || item.accountType === 'CONNECT') {
-                accountId = bankAccountId;
-            } else if (item.accountType === 'GASTO') {
-                accountId = cashAcountId;
-            } else {
-                accountId = cashAcountId;
+            let accountId = bankAccountId;
+            
+            if (!accountId){
+                /* console.log('NO HAY ACCOUNT ID', item); */
             }
-            if (!accountId)
-                console.log('NO HAY ACCOUNT ID', item);
-
             if(item.amount === undefined){
-                console.log("NO HAY AMOUNT", item);
+                /* console.log("NO HAY AMOUNT", item); */
                 return;
             }
 
@@ -72,38 +63,24 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                 data: {
                     amount: item.amount.toString(),
                     date: item.date,
-                    sourceAccount: {
-                        connect: {
-                            id: accountId,
-                        }
-                    },
-                    //sourceAccountId: accountId,
+                    sourceAccountId: accountId,
                     description: String(item.description),
-                    /* lead: item.leadId ? {
-                        connect: {
-                            id: employeeIdsMap[item.leadId],
-                        }
-                    } : undefined, */
-                    //leadId: item.leadId ? employeeIdsMap[item.leadId] : undefined,
-                    lead: item.leadId && employeeIdsMap[item.leadId] ? {
-                        connect: {
-                            id: employeeIdsMap[item.leadId],
-                        }
-                    } : undefined,
+                    leadId: item.leadId ? employeeIdsMap[item.leadId] : undefined,
                     type: 'EXPENSE',
+                    expenseSource: 'NOMINA_SALARY',
                 }
             })});
         const cleanedData = transactionPromises.filter(e => e !== undefined);
-        /* console.log('Saving expenses', cleanedData.length, cleanedData[0]); */
+        console.log('Saving expenses', cleanedData.length, cleanedData[0]);
         await prisma.$transaction(cleanedData);
     }
 };
 
-export const seedExpenses = async (accountId: string, bankAccountId: string) => {
-    const loanData = extractExpensesData();
+export const seedNomina = async (bankAccountId: string) => {
+    const loanData = extractNominaData();
     
-    if(accountId){
-        await saveExpensesOnDB(loanData, accountId, bankAccountId);
+    if(bankAccountId){
+        await saveExpensesOnDB(loanData, bankAccountId);
         console.log('Expenses seeded');
     }else{
         console.log('No se encontro la cuenta principal');

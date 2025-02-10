@@ -54,8 +54,6 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
         }
     });
 
-    /* console.log('loanIdsMap', loanIdsMap); */
-    console.log("finalizado", Object.keys(loanIdsMap).length);
     // Dividir los datos en lotes de 100 elementos
     const batches = chunkArray(payments, 5000);
     //TODO: HANDLE FALCOS
@@ -89,7 +87,8 @@ const saveDataToDB = async (payments: Payments[], routeId: string) => {
                                     id: destinationAccount?.id,
                                 }
                             },
-                            type: 'PAYMENT',
+                            type: 'INCOME',
+                            incomeSource: 'LOAN_PAYMENT',
                         }
                     }
                 }
