@@ -1,44 +1,37 @@
-import { getLoanIdsMap } from "../leads";
-import { ExcelRow } from "../loan/types";
-import { prisma } from "../standaloneApp";
-import { chunkArray, convertExcelDate } from "../utils";
-import { ExcelPaymentRelationship, Payments } from "./types";
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.extractPaymentData = void 0;
+const utils_1 = require("../utils");
 const xlsx = require('xlsx');
-
-const excelColumnsRelationship: ExcelPaymentRelationship = {
+const excelColumnsRelationship = {
     'A': 'oldId',
     'C': 'paymentDate',
     'D': 'amount',
     'E': 'type',
     'F': 'description',
 };
-
-export const extractPaymentData = () => {
+const extractPaymentData = () => {
     const excelFilePath = './ruta2.xlsm';
     const tabName = 'ABONOS';
-
     // Leer el archivo Excel
     const workbook = xlsx.readFile(excelFilePath);
-
     // Obtener la hoja especificada
     const sheetPayments = workbook.Sheets[tabName];
-
     // Convertir la hoja a formato JSON
     const data = xlsx.utils.sheet_to_json(sheetPayments, { header: 1 });
-
-    let loansData: Payments[] = data.slice(1).map((row: ExcelRow) => {
-        const obj: Partial<Payments> = {};
+    let loansData = data.slice(1).map((row) => {
+        const obj = {};
         for (const [col, key] of Object.entries(excelColumnsRelationship)) {
             const colIndex = xlsx.utils.decode_col(col);
             let value = row[colIndex];
             // Convertir fechas si es necesario
             if (key === 'paymentDate') {
-                value = convertExcelDate(value);
+                value = (0, utils_1.convertExcelDate)(value);
             }
             obj[key] = value;
         }
-        return obj as Payments;
+        return obj;
     });
     return loansData;
 };
+exports.extractPaymentData = extractPaymentData;

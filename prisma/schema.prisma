@@ -23,7 +23,6 @@ model Employee {
   oldId                     String?               @unique
   routes                    Route?                @relation("Employee_routes", fields: [routesId], references: [id])
   routesId                  String?               @map("routes")
-  expenses                  Expense[]             @relation("Expense_employee")
   transactions              Transaction[]         @relation("Transaction_lead")
   personalData              PersonalData?         @relation("Employee_personalData", fields: [personalDataId], references: [id])
   personalDataId            String?               @unique @map("personalData")
@@ -72,20 +71,6 @@ model Municipality {
   location Location[] @relation("Location_municipality")
 
   @@index([stateId])
-}
-
-model Expense {
-  id          String    @id @default(cuid())
-  amountToPay Decimal?  @postgresql.Decimal(18, 4)
-  dueDate     DateTime?
-  payedAt     DateTime?
-  employee    Employee? @relation("Expense_employee", fields: [employeeId], references: [id])
-  employeeId  String?   @map("employee")
-  createdAt   DateTime? @default(now())
-  updatedAt   DateTime?
-  userId      String    @default("")
-
-  @@index([employeeId])
 }
 
 model Loantype {
@@ -188,8 +173,6 @@ model LoanPayment {
   id                    String               @id @default(cuid())
   amount                Decimal?             @postgresql.Decimal(10, 2)
   comission             Decimal?             @postgresql.Decimal(18, 4)
-  profitAmount          Decimal?             @postgresql.Decimal(10, 2)
-  returnToCapital       Decimal?             @postgresql.Decimal(10, 2)
   receivedAt            DateTime?            @default(now())
   createdAt             DateTime?            @default(now())
   updatedAt             DateTime?
@@ -224,6 +207,10 @@ model Transaction {
   loan                 Loan?        @relation("Transaction_loan", fields: [loanId], references: [id])
   loanId               String?      @map("loan")
   loanPayment          LoanPayment? @relation("LoanPayment_transaction")
+  profitAmount         Decimal?     @default("0") @postgresql.Decimal(10, 2)
+  returnToCapital      Decimal?     @default("0") @postgresql.Decimal(10, 2)
+  createdAt            DateTime?    @default(now())
+  updatedAt            DateTime?
 
   @@index([leadId])
   @@index([sourceAccountId])
@@ -261,11 +248,12 @@ model FalcoCompensatoryPayment {
 
 model LeadPaymentReceived {
   id                        String                     @id @default(cuid())
-  type                      String?
   expectedAmount            Decimal?                   @postgresql.Decimal(18, 4)
   paidAmount                Decimal?                   @postgresql.Decimal(18, 4)
-  falco                     Decimal?                   @postgresql.Decimal(18, 4)
-  pendingFalcoAmount        Decimal?                   @postgresql.Decimal(18, 4)
+  cashPaidAmount            Decimal?                   @postgresql.Decimal(18, 4)
+  bankPaidAmount            Decimal?                   @postgresql.Decimal(18, 4)
+  falcoAmount               Decimal?                   @postgresql.Decimal(18, 4)
+  paymentStatus             String?
   createdAt                 DateTime?                  @default(now())
   updatedAt                 DateTime?
   agent                     Employee?                  @relation("LeadPaymentReceived_agent", fields: [agentId], references: [id])
