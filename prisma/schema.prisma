@@ -3,6 +3,7 @@
 
 datasource postgresql {
   url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
   provider          = "postgresql"
 }
 
@@ -147,7 +148,7 @@ model Loan {
   avalPhone              String              @default("")
   grantor                Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])
   grantorId              String?             @map("grantor")
-  transaction            Transaction[]       @relation("Transaction_loan")
+  transactions           Transaction[]       @relation("Transaction_loan")
   lead                   Employee?           @relation("Loan_lead", fields: [leadId], references: [id])
   leadId                 String?             @map("lead")
   borrower               Borrower?           @relation("Loan_borrower", fields: [borrowerId], references: [id])
@@ -179,8 +180,7 @@ model LoanPayment {
   oldLoanId             String?
   loan                  Loan?                @relation("LoanPayment_loan", fields: [loanId], references: [id])
   loanId                String?              @map("loan")
-  transaction           Transaction?         @relation("LoanPayment_transaction", fields: [transactionId], references: [id])
-  transactionId         String?              @unique @map("transaction")
+  transactions          Transaction[]        @relation("Transaction_loanPayment")
   type                  String?
   leadPaymentReceived   LeadPaymentReceived? @relation("LoanPayment_leadPaymentReceived", fields: [leadPaymentReceivedId], references: [id])
   leadPaymentReceivedId String?              @map("leadPaymentReceived")
@@ -206,7 +206,8 @@ model Transaction {
   destinationAccountId String?      @map("destinationAccount")
   loan                 Loan?        @relation("Transaction_loan", fields: [loanId], references: [id])
   loanId               String?      @map("loan")
-  loanPayment          LoanPayment? @relation("LoanPayment_transaction")
+  loanPayment          LoanPayment? @relation("Transaction_loanPayment", fields: [loanPaymentId], references: [id])
+  loanPaymentId        String?      @map("loanPayment")
   profitAmount         Decimal?     @default("0") @postgresql.Decimal(10, 2)
   returnToCapital      Decimal?     @default("0") @postgresql.Decimal(10, 2)
   createdAt            DateTime?    @default(now())
@@ -216,6 +217,7 @@ model Transaction {
   @@index([sourceAccountId])
   @@index([destinationAccountId])
   @@index([loanId])
+  @@index([loanPaymentId])
 }
 
 model CommissionPayment {

@@ -157,7 +157,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                                 //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                 type: payment.type,
-                                transaction: {
+                                transactions: {
                                     create: {
                                         profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                                         returnToCapital:item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
@@ -180,14 +180,14 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                     finishedDate: item.finishedDate,
                     profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
-                    transaction: {
-                        create: {
+                    transactions: {
+                        create: [{
                             amount: item.givedAmount,
                             date: item.givedDate,
                             sourceAccountId: cashAccountId,
                             type: 'EXPENSE',
                             expenseSource: 'LOAN_GRANTED',
-                        }
+                        }]
                     }
                 }
             });
@@ -201,7 +201,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         include: {
             payments: {
                 include: {
-                    transaction: true,
+                    transactions: true,
                 }
             },
             previousLoan: true
@@ -217,7 +217,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }
     } = {};
     loansFromDb.forEach((item) => {
-        const totalProfitPayed = item.payments.reduce((acc, payment) => acc + (payment.transaction && payment.transaction.profitAmount ? Number(payment.transaction.profitAmount) : 0), 0);
+        const totalProfitPayed = item.payments.reduce((acc, payment) => acc + (payment.transactions.length && payment.transactions[0].profitAmount ? Number(payment.transactions[0].profitAmount) : 0), 0);
         loanIdsMap[String(item?.oldId!)] = {
             id: item.id,
             borrowerId: item.borrowerId ?? '',
@@ -242,7 +242,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             include: {
                 payments: {
                     include: {
-                        transaction: true,
+                        transactions: true,
                     }
                 },
             }
@@ -254,7 +254,10 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
         const rate = loanType.rate ? Number(loanType.rate) : 0;
         const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
-        const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc, payment) => acc + (payment.transaction?.profitAmount ? Number(payment.transaction.profitAmount) : 0), 0);
+        const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc, payment) => {
+            const transactionProfit = payment.transactions.reduce((transAcc, transaction) => transAcc + (transaction.profitAmount ? Number(transaction.profitAmount) : 0), 0);
+            return acc + transactionProfit;
+        }, 0) || 0;
         
         const profitPendingFromPreviousLoan = previousLoanProfitAmount - (payedProfitFromPreviousLoan ?? 0);
         const baseProfit = Number(item.requestedAmount) * rate;
@@ -335,7 +338,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             /* profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                             returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount, */
                             type: payment.type,
-                            transaction: {
+                            transactions: {
                                 create: {
                                     amount: payment.amount,
                                     date: payment.paymentDate,
@@ -344,12 +347,13 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                     incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT': 'CASH_LOAN_PAYMENT',
                                     profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                                     returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
+                                    
                                 }
                             }
                         }
                     })
                 } : undefined,
-                transaction: {
+                transactions: {
                     create: {
                         amount: item.givedAmount,
                         date: item.givedDate,
