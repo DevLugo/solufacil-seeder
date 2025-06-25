@@ -11,6 +11,26 @@ import { seedNomina } from './nomina';
 const app = express();
 const port = process.env.PORT || 3000;
 
+// ⏰ CONFIGURACIÓN DE TIMEOUTS LARGOS PARA RENDER
+app.use((req, res, next) => {
+    // Timeout de 20 minutos para requests largas (máximo en Render)
+    req.setTimeout(20 * 60 * 1000); // 20 minutos
+    res.setTimeout(20 * 60 * 1000); // 20 minutos
+    next();
+});
+
+// 🚀 CONFIGURACIÓN DE SERVIDOR PARA PROCESOS LARGOS
+const server = app.listen(port, () => {
+    console.log(`🚀 Servidor corriendo en puerto ${port}`);
+    console.log(`📍 URL principal: http://localhost:${port}`);
+    console.log(`🔗 Iniciar sync: http://localhost:${port}/sync`);
+});
+
+// Timeout del servidor a 25 minutos (más que el request)
+server.timeout = 25 * 60 * 1000; // 25 minutos
+server.keepAliveTimeout = 24 * 60 * 1000; // 24 minutos
+server.headersTimeout = 25 * 60 * 1000; // 25 minutos
+
 export const prisma = new PrismaClient({
     log: process.env.NODE_ENV === 'production' ? ['info', 'warn', 'error'] : ['query', 'info', 'warn', 'error'],
 });
@@ -315,13 +335,6 @@ app.get('/health', (req, res) => {
         seeding: isSeeding,
         database: process.env.DATABASE_URL ? 'connected' : 'not configured'
     });
-});
-
-// Iniciar servidor
-app.listen(port, () => {
-    console.log(`🚀 Servidor corriendo en puerto ${port}`);
-    console.log(`📍 URL principal: http://localhost:${port}`);
-    console.log(`🔗 Iniciar sync: http://localhost:${port}/sync`);
 });
 
 export default app; 

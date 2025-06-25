@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "run-standalone": "ts-node src/standaloneApp.ts",
     "seed-production": "npm run build && npm run prisma-generate && node dist/standaloneApp.js",
+    "seed-render": "node dist/standaloneApp.js",
     "prisma-generate": "prisma generate",
     "prisma-deploy": "prisma db push",
     "render-build": "npm install && npm run build && npm run prisma-generate"

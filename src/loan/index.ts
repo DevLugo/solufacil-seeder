@@ -90,7 +90,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 /*         console.log('NO EMPLOYEE IDS MAP'); */
         return;
     }
-    // Dividir los datos en lotes de 50 elementos (optimizado para evitar timeouts)
+        // Batches razonables - optimizado para velocidad
     const batches = chunkArray(notRenovatedLoans, 50);
     console.log(`Procesando ${notRenovatedLoans.length} préstamos NO renovados en ${batches.length} batches de 50`);
     
@@ -261,7 +261,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log(`Préstamos anteriores cargados: ${Object.keys(previousLoansMap).length}`);
 
     // OPTIMIZACIÓN 2: Procesar en batches con Promise.all
-    const renovatedBatches = chunkArray(renovatedLoans, 100); // Lotes de 100 para manejo óptimo
+    const renovatedBatches = chunkArray(renovatedLoans, 100); // Batches razonables para velocidad
     console.log(`Procesando ${renovatedLoans.length} préstamos renovados en ${renovatedBatches.length} batches`);
 
     for (let batchIndex = 0; batchIndex < renovatedBatches.length; batchIndex++) {
