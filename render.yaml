@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: keystone-seeder-web
+    env: node
+    buildCommand: npm install && npm run render-build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false  # Configurar manualmente con tu URL de Neon
+      - key: SHADOW_DATABASE_URL
+        sync: false  # Misma URL que DATABASE_URL de Neon
+    plan: starter  # Plan básico ($7/mes)
+    
+    # Configuración adicional para web service
+    healthCheckPath: /health
+    numInstances: 1
+    
+    # Auto-deploy deshabilitado para control manual
+    autoDeploy: false
+
+  # Opcional: Web service para monitoreo (comentado por defecto)
+  # - type: web
+  #   name: keystone-seeder-web
+  #   env: node
+  #   buildCommand: npm install && npm run build
+  #   startCommand: npm start
+  #   envVars:
+  #     - key: PORT
+  #       value: 10000
+  #   plan: free 

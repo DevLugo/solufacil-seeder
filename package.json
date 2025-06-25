@@ -1,27 +1,31 @@
 {
-  "name": "my-ts-node-prisma-app",
+  "name": "keystone-seeder-web",
   "version": "1.0.0",
-  "main": "src/index.ts",
+  "main": "src/server.ts",
   "scripts": {
     "dev": "ts-node src/standaloneApp.ts",
+    "dev-server": "ts-node src/server.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
-    "run-standalone": "ts-node src/standaloneApp.ts"
+    "start": "node dist/server.js",
+    "run-standalone": "ts-node src/standaloneApp.ts",
+    "seed-production": "npm run build && npm run prisma-generate && node dist/standaloneApp.js",
+    "prisma-generate": "prisma generate",
+    "prisma-deploy": "prisma db push",
+    "render-build": "npm install && npm run build && npm run prisma-generate"
   },
   "dependencies": {
     "prisma": "6.3.0",
     "@prisma/client": "6.3.0",
     "express": "4.17.1",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
+    "xlsx": "^0.18.5",
     "typescript": "5.7.3",
     "ts-node": "10.4.0",
     "@types/node": "22.13.0",
     "dotenv": "^16.4.7",
     "@types/express": "4.17.13"
   },
+  "devDependencies": {},
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   }
 }
