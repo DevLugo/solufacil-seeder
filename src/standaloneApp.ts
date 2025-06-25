@@ -12,13 +12,13 @@ export const prisma = new PrismaClient({
 });
 
 // Función para logs con timestamps
-const log = (message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') => {
+export const log = (message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') => {
     const timestamp = new Date().toISOString();
     const symbols = { info: 'ℹ️', success: '✅', error: '❌', warn: '⚠️' };
     console.log(`${symbols[type]} [${timestamp}] ${message}`);
 };
 
-async function main() {
+export async function main() {
     const startTime = Date.now();
     
     log('🚀 INICIANDO SEEDER EN RENDER CLOUD', 'info');
@@ -127,17 +127,19 @@ async function main() {
     } catch (error) {
         log(`💥 Error durante el seeding: ${error}`, 'error');
         throw error;
-    }
-}
-
-main()
-    .catch(e => {
-        log(`🚨 Error fatal: ${e}`, 'error');
-        console.error(e);
-        process.exit(1);
-    })
-    .finally(async () => {
+    } finally {
         log('🔌 Desconectando de la base de datos...', 'info');
         await prisma.$disconnect();
         log('👋 Proceso finalizado', 'info');
-    });
+    }
+}
+
+// Solo ejecutar si este archivo se llama directamente
+if (require.main === module) {
+    main()
+        .catch(e => {
+            log(`🚨 Error fatal: ${e}`, 'error');
+            console.error(e);
+            process.exit(1);
+        });
+}
