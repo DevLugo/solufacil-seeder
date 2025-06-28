@@ -101,12 +101,20 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
 };
 
 export const seedExpenses = async (accountId: string, bankAccountId: string) => {
+    console.log('💸 Iniciando creación de expenses...');
+    const startTime = Date.now();
+    
     const loanData = extractExpensesData();
+    console.log(`📊 ${loanData.length} expenses encontrados en Excel`);
     
     if(accountId){
         await saveExpensesOnDB(loanData, accountId, bankAccountId);
-        console.log('Expenses seeded');
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ Expenses creados exitosamente en ${duration}s`);
+        console.log(`📈 Total procesados: ${loanData.length} expenses`);
     }else{
-        console.log('No se encontro la cuenta principal');
+        console.log('❌ No se encontró la cuenta principal');
+        throw new Error('No se encontró la cuenta principal para expenses');
     }
 };

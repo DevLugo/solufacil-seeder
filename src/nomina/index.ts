@@ -83,12 +83,20 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string) => {
 };
 
 export const seedNomina = async (bankAccountId: string) => {
+    console.log('💼 Iniciando creación de nómina...');
+    const startTime = Date.now();
+    
     const loanData = extractNominaData();
+    console.log(`📊 ${loanData.length} entradas de nómina encontradas en Excel`);
     
     if(bankAccountId){
         await saveExpensesOnDB(loanData, bankAccountId);
-        console.log('Expenses seeded');
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ Nómina creada exitosamente en ${duration}s`);
+        console.log(`📈 Total procesados: ${loanData.length} entradas de nómina`);
     }else{
-        console.log('No se encontro la cuenta principal');
+        console.log('❌ No se encontró la cuenta principal');
+        throw new Error('No se encontró la cuenta de banco para nómina');
     }
 };

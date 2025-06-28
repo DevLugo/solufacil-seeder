@@ -2,6 +2,9 @@ import { prisma } from "../standaloneApp";
 import { leads } from "../utils";
 
 export const seedLeads = async (routeId: string) => {
+    console.log(`👥 Iniciando creación de ${leads.length} leads...`);
+    const startTime = Date.now();
+    
     for (const e of leads) {
         await prisma.employee.create({
             data: {
@@ -20,8 +23,11 @@ export const seedLeads = async (routeId: string) => {
             }
         }
         );
-    };
-}
+    }
+    
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`✅ ${leads.length} leads creados exitosamente en ${duration}s`);
+};
 
 export const getEmployeeIdsMap = async (): Promise<{ [key: string]: string }> => {
     const employeeIdsMap: { [key: string]: string } = {};

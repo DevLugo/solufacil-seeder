@@ -90,16 +90,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 /*         console.log('NO EMPLOYEE IDS MAP'); */
         return;
     }
-    // Dividir los datos en lotes de 100 elementos (reducido de 1000)
+    // Dividir los datos en lotes de 100 elementos (optimizado para DigitalOcean)
     const batches = chunkArray(notRenovatedLoans, 100);
-    console.log(`Processing ${notRenovatedLoans.length} loans in ${batches.length} batches`);
+    console.log(`🔢 Procesando ${notRenovatedLoans.length} loans nuevos en ${batches.length} batches de 100`);
     
-    let processedCount = 0;
     for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
+        const batchStartTime = Date.now();
+        
         const transactionPromises = batch.map(item => {
             if (!groupedPayments[item.id]) {
-                // Reducir logging durante el proceso
                 return;
             }
             return prisma.loan.create({
@@ -135,7 +135,6 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
                             
                             const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
-                            const rate = loanType.rate ? Number(loanType.rate) : 0;
                             const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
                             const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
 
@@ -183,11 +182,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         const cleanedPromises = transactionPromises.filter(item => item !== undefined);
         await prisma.$transaction(cleanedPromises);
         
-        processedCount += batch.length;
-        console.log(`✅ Batch ${i + 1}/${batches.length} completed (${processedCount}/${notRenovatedLoans.length})`);
+        const batchDuration = ((Date.now() - batchStartTime) / 1000).toFixed(2);
+        const processed = (i + 1) * 100;
+        const total = notRenovatedLoans.length;
+        const percentage = ((processed / total) * 100).toFixed(1);
         
-        // Liberar memoria y dar tiempo al GC
-        if (i % 10 === 0) {
+        console.log(`⏳ Batch ${i + 1}/${batches.length} completado en ${batchDuration}s (${percentage}% - ${Math.min(processed, total)}/${total})`);
+        
+        // Liberar memoria cada 10 batches
+        if (i > 0 && i % 10 === 0) {
+            console.log(`🧹 Limpieza de memoria (batch ${i + 1})`);
             global.gc && global.gc();
         }
     }
@@ -387,12 +391,30 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 };
 
 export const seedLoans = async (cashAccountId: string, bankAccountId: string) => {
+    console.log('💰 Iniciando creación de loans...');
+    const startTime = Date.now();
+    
     const loanData = extractLoanData();
     const payments = extractPaymentData();
+    
+    console.log(`📊 ${loanData.length} loans encontrados en Excel`);
+    console.log(`💳 ${payments.length} payments encontrados en Excel`);
+    
+    const renovatedCount = loanData.filter(item => item && item.previousLoanId !== undefined).length;
+    const newCount = loanData.filter(item => item && item.previousLoanId === undefined).length;
+    
+    console.log(`🔄 ${renovatedCount} loans renovados`);
+    console.log(`🆕 ${newCount} loans nuevos`);
+    
     if (cashAccountId) {
         await saveDataToDB(loanData, cashAccountId, bankAccountId, payments);
-        console.log('Loans seeded');
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ Loans creados exitosamente en ${duration}s`);
+        console.log(`📈 Total procesados: ${loanData.length} loans`);
+        console.log(`🎯 Cuentas utilizadas: Cash(${cashAccountId.slice(-8)}) Bank(${bankAccountId.slice(-8)})`);
     } else {
-        console.log('No se encontro la cuenta principal');
+        console.log('❌ No se encontró la cuenta principal');
+        throw new Error('No se encontró la cuenta principal para loans');
     }
-}
+};
