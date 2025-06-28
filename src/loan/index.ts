@@ -61,8 +61,10 @@ const extractLoanData = () => {
 const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: string, payments: Payments[]) => {
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
-    console.log('renovatedLoans', renovatedLoans.length);
-    console.log('notRenovatedLoans', notRenovatedLoans.length);
+    console.log('=== INICIANDO SEEDER DE PRÉSTAMOS ===');
+    console.log(`Préstamos renovados: ${renovatedLoans.length}`);
+    console.log(`Préstamos NO renovados: ${notRenovatedLoans.length}`);
+    console.log(`Total de préstamos: ${loans.length}`);
 
     //Create the loanTypes
     const fourteenWeeksId = await prisma.loantype.create({
@@ -82,27 +84,31 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         },
     );
 
-
     const groupedPayments = groupPaymentsByOldLoanId(payments);
-
     const employeeIdsMap = await getEmployeeIdsMap();
     if (!employeeIdsMap) {
-/*         console.log('NO EMPLOYEE IDS MAP'); */
+        console.log('❌ NO EMPLOYEE IDS MAP');
         return;
     }
-        // Batches ULTRA pequeños para evitar crashes
-    const batches = chunkArray(notRenovatedLoans, 5); // Reducido de 50 a 5
-    console.log(`Procesando ${notRenovatedLoans.length} préstamos NO renovados en ${batches.length} batches de 5`);
+
+    // OPTIMIZACIÓN: Batch size más eficiente
+    const batches = chunkArray(notRenovatedLoans, 25); // Aumentado de 5 a 25
+    console.log(`\n🔄 Procesando ${notRenovatedLoans.length} préstamos NO renovados en ${batches.length} batches de 25`);
+    
+    let processedCount = 0;
+    let errorCount = 0;
+    const startTime = Date.now();
     
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
-        console.log(`Procesando batch de préstamos NO renovados ${batchIndex + 1}/${batches.length} (${batch.length} préstamos)`);
+        const batchStartTime = Date.now();
+        console.log(`\n📦 Batch ${batchIndex + 1}/${batches.length} - Procesando ${batch.length} préstamos...`);
         
-        // Procesar uno por uno en lugar de transacción masiva
-        for (const item of batch) {
+        // OPTIMIZACIÓN: Procesar batch con mejor manejo de errores
+        const batchPromises = batch.map(async (item, itemIndex) => {
             if (!groupedPayments[item.id]) {
-                console.log('No payments for loan', item.id);
-                continue;
+                console.log(`⚠️  Sin pagos para préstamo ${item.id}`);
+                return null;
             }
             
             try {
@@ -142,27 +148,11 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 const rate = loanType.rate ? Number(loanType.rate) : 0;
                                 const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
                                 const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
-                                
-                                if(["1873"].includes(item.id.toString())){
-
-                                    /* console.log('================INICIANDO=================', item.id);
-                                    console.log("previousLoan", item.previousLoanId);
-                                    console.log("RATE", rate);
-                                    console.log('PROFIT BASE', baseProfit);
-                                    console.log('Payment PROFIT', profitAmount);
-                                    
-                                    console.log("PAYMENT AMOUNT", payment.amount);
-                                    console.log("payment  capital", payment.amount - profitAmount);
-                                    console.log('====FINALIZADO===', item.requestedAmount); */
-                                }
 
                                 return {
                                     oldLoanId: String(item.id),
                                     receivedAt: payment.paymentDate,
                                     amount: payment.amount,
-                                    
-                                    //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
-                                    //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                     type: payment.type,
                                     transactions: {
                                         create: [{
@@ -198,15 +188,42 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         }
                     }
                 });
+                
+                processedCount++;
+                return item.id;
             } catch (error) {
-                console.error(`Error al crear préstamo ${item.id}:`, error);
+                errorCount++;
+                console.error(`❌ Error al crear préstamo ${item.id}:`, error);
+                return null;
             }
-        }
-        console.log(`Batch ${batchIndex + 1} de préstamos NO renovados completado`);
+        });
+
+        // OPTIMIZACIÓN: Ejecutar batch en paralelo con límite
+        const results = await Promise.allSettled(batchPromises);
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+        const failureCount = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null)).length;
+        
+        const batchTime = Date.now() - batchStartTime;
+        const avgTimePerLoan = batchTime / batch.length;
+        const totalElapsed = Date.now() - startTime;
+        const remainingBatches = batches.length - (batchIndex + 1);
+        const estimatedTimeRemaining = (remainingBatches * batchTime) / 1000 / 60; // en minutos
+        
+        console.log(`✅ Batch ${batchIndex + 1} completado:`);
+        console.log(`   • Exitosos: ${successCount}/${batch.length}`);
+        console.log(`   • Fallidos: ${failureCount}/${batch.length}`);
+        console.log(`   • Tiempo: ${(batchTime/1000).toFixed(1)}s (${avgTimePerLoan.toFixed(0)}ms/préstamo)`);
+        console.log(`   • Progreso total: ${processedCount}/${notRenovatedLoans.length} (${((processedCount/notRenovatedLoans.length)*100).toFixed(1)}%)`);
+        console.log(`   • Tiempo estimado restante: ${estimatedTimeRemaining.toFixed(1)} minutos`);
     }
 
+    console.log(`\n🎉 PRÉSTAMOS NO RENOVADOS COMPLETADOS:`);
+    console.log(`   • Total procesados: ${processedCount}/${notRenovatedLoans.length}`);
+    console.log(`   • Errores: ${errorCount}`);
+    console.log(`   • Tiempo total: ${((Date.now() - startTime)/1000/60).toFixed(1)} minutos`);
+
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
-    console.log('Creando mapa de relaciones de forma eficiente...');
+    console.log('\n🔄 Creando mapa de relaciones de forma eficiente...');
     // OPTIMIZACIÓN: En lugar de cargar toda la DB, usar solo los IDs necesarios
     const loanIdsMap: {
         [key: string]: {
@@ -238,10 +255,12 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         };
     });
     
-    console.log("=====================renovatedLoans insert =====================");
+    console.log(`✅ Mapa de préstamos creado: ${Object.keys(loanIdsMap).length} préstamos`);
+    
+    console.log("\n=== INICIANDO PRÉSTAMOS RENOVADOS ===");
     
     // OPTIMIZACIÓN 1: Precarga de todos los préstamos anteriores necesarios
-    console.log('Precargando préstamos anteriores de forma eficiente...');
+    console.log('🔄 Precargando préstamos anteriores de forma eficiente...');
     const previousLoanIds = renovatedLoans
         .filter(item => item.previousLoanId !== undefined)
         .map(item => String(item.previousLoanId));
@@ -264,26 +283,31 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }, {} as Record<string, any>)
     );
     
-    console.log(`Préstamos anteriores cargados: ${Object.keys(previousLoansMap).length}`);
+    console.log(`✅ Préstamos anteriores cargados: ${Object.keys(previousLoansMap).length}`);
 
-    // OPTIMIZACIÓN 2: Procesar en batches pequeños uno por uno
-    const renovatedBatches = chunkArray(renovatedLoans, 10); // Reducido de 100 a 10
-    console.log(`Procesando ${renovatedLoans.length} préstamos renovados en ${renovatedBatches.length} batches`);
+    // OPTIMIZACIÓN 2: Procesar en batches más grandes
+    const renovatedBatches = chunkArray(renovatedLoans, 20); // Aumentado de 10 a 20
+    console.log(`\n🔄 Procesando ${renovatedLoans.length} préstamos renovados en ${renovatedBatches.length} batches de 20`);
+
+    processedCount = 0;
+    errorCount = 0;
+    const renovatedStartTime = Date.now();
 
     for (let batchIndex = 0; batchIndex < renovatedBatches.length; batchIndex++) {
         const batch = renovatedBatches[batchIndex];
-        console.log(`Procesando batch ${batchIndex + 1}/${renovatedBatches.length} (${batch.length} préstamos)`);
+        const batchStartTime = Date.now();
+        console.log(`\n📦 Batch renovados ${batchIndex + 1}/${renovatedBatches.length} - Procesando ${batch.length} préstamos...`);
 
-        // Procesar uno por uno en lugar de Promise.all
-        for (const item of batch) {
+        // OPTIMIZACIÓN: Procesar en paralelo con mejor manejo de errores
+        const batchPromises = batch.map(async (item) => {
             if (!item.previousLoanId) {
-                continue;
+                return null;
             }
 
             const previousLoan = previousLoansMap[String(item.previousLoanId)];
             if (!previousLoan) {
-                console.log(`Préstamo anterior no encontrado para ID: ${item.previousLoanId}`);
-                continue;
+                console.log(`⚠️  Préstamo anterior no encontrado para ID: ${item.previousLoanId}`);
+                return null;
             }
 
             try {
@@ -292,8 +316,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
                 
                 // OPTIMIZACIÓN: Simplificar cálculo de profit para evitar consultas complejas
-                // En lugar de calcular profit pagado, usar el profit total pendiente
-                const profitPendingFromPreviousLoan = previousLoanProfitAmount; // Simplificado
+                const profitPendingFromPreviousLoan = previousLoanProfitAmount;
                 const baseProfit = Number(item.requestedAmount) * rate;
                 const profitAmount = baseProfit + Number(profitPendingFromPreviousLoan);
 
@@ -334,16 +357,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 const loanTotalProfit = baseProfit + profitPendingFromPreviousLoan;
                                 const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
                                 const profitAmount = (payment.amount * loanTotalProfit) / Number(totalAmountToPay);
-                                
 
-                                if(["3292"].includes(item.id.toString())){
-                                    /* console.log('================INICIANDO=================', item.id);
-                                    console.log("previousLoan", item.previousLoanId);
-                                    console.log("profitPendingFromPreviousLoan", profitPendingFromPreviousLoan);
-                                    console.log('====loanTotalProfit', loanTotalProfit);
-                                    console.log('====totalAmountToPay', totalAmountToPay);
-                                    console.log('====profitAmount', profitAmount); */
-                                }
                                 return {
                                     oldLoanId: String(item.id),
                                     receivedAt: payment.paymentDate,
@@ -374,34 +388,53 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         }
                     }
                 });
+                
+                processedCount++;
+                return item.id;
             } catch (error) {
-                console.error(`Error al crear préstamo ${item.id}:`, error);
+                errorCount++;
+                console.error(`❌ Error al crear préstamo renovado ${item.id}:`, error);
+                return null;
             }
-        }
-        console.log(`Batch ${batchIndex + 1} completado`);
+        });
+
+        // Ejecutar batch en paralelo
+        const results = await Promise.allSettled(batchPromises);
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+        const failureCount = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null)).length;
+        
+        const batchTime = Date.now() - batchStartTime;
+        const avgTimePerLoan = batchTime / batch.length;
+        const totalElapsed = Date.now() - renovatedStartTime;
+        const remainingBatches = renovatedBatches.length - (batchIndex + 1);
+        const estimatedTimeRemaining = (remainingBatches * batchTime) / 1000 / 60;
+        
+        console.log(`✅ Batch renovados ${batchIndex + 1} completado:`);
+        console.log(`   • Exitosos: ${successCount}/${batch.length}`);
+        console.log(`   • Fallidos: ${failureCount}/${batch.length}`);
+        console.log(`   • Tiempo: ${(batchTime/1000).toFixed(1)}s (${avgTimePerLoan.toFixed(0)}ms/préstamo)`);
+        console.log(`   • Progreso total: ${processedCount}/${renovatedLoans.length} (${((processedCount/renovatedLoans.length)*100).toFixed(1)}%)`);
+        console.log(`   • Tiempo estimado restante: ${estimatedTimeRemaining.toFixed(1)} minutos`);
     }
-    console.log("=====================");
-    console.log("=====================");
+    
+    console.log(`\n🎉 PRÉSTAMOS RENOVADOS COMPLETADOS:`);
+    console.log(`   • Total procesados: ${processedCount}/${renovatedLoans.length}`);
+    console.log(`   • Errores: ${errorCount}`);
+    console.log(`   • Tiempo total: ${((Date.now() - renovatedStartTime)/1000/60).toFixed(1)} minutos`);
 
-
+    // OPTIMIZACIÓN: Cálculo final más eficiente
+    console.log('\n🔄 Calculando totales...');
     const totalGivedAmount = await prisma.loan.aggregate({
         _sum: {
             amountGived: true,
         }
     });
-    console.log('Total gived amount', totalGivedAmount);
-
-
-    if (totalGivedAmount) {
-        /* await prisma.transaction.create({
-            data: {
-                amount: totalGivedAmount?._sum.amountGived ? totalGivedAmount._sum.amountGived.toString() : "0",
-                date: new Date(),
-                sourceAccountId: accountId,
-                type: 'LOAN',
-            }
-        }); */
-    }
+    
+    const totalTime = (Date.now() - startTime) / 1000 / 60;
+    console.log('\n🎉 SEEDER COMPLETADO:');
+    console.log(`   • Tiempo total: ${totalTime.toFixed(1)} minutos`);
+    console.log(`   • Total amount gived: ${totalGivedAmount._sum.amountGived || 0}`);
+    console.log('=== FIN DEL SEEDER ===');
 };
 
 export const seedLoans = async (cashAccountId: string, bankAccountId: string) => {
