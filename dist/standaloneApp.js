@@ -15,7 +15,7 @@ const nomina_1 = require("./nomina");
 const express_1 = __importDefault(require("express"));
 exports.prisma = new client_1.PrismaClient();
 const app = (0, express_1.default)();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 let isSeeding = false;
 let lastSeedResult = null;
 let lastSeedError = null;
@@ -128,8 +128,15 @@ app.get('/', (req, res) => {
         service: 'keystone-seeder',
         timestamp: new Date().toISOString(),
         isSeeding,
-        lastSeedResult: lastSeedResult ? lastSeedResult.timestamp : null
+        lastSeedResult: lastSeedResult ? lastSeedResult.timestamp : null,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        pid: process.pid
     });
+});
+// Health check adicional más simple
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
 });
 // Endpoint para ejecutar el seeding
 app.post('/seed', async (req, res) => {
@@ -173,21 +180,65 @@ app.get('/results', (req, res) => {
     res.json(lastSeedResult);
 });
 // Iniciar el servidor
-app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
     console.log(`📊 Health check: http://localhost:${PORT}/`);
     console.log(`🌱 Ejecutar seeding: POST http://localhost:${PORT}/seed`);
     console.log(`📈 Ver estado: http://localhost:${PORT}/status`);
     console.log(`📋 Ver resultados: http://localhost:${PORT}/results`);
+    console.log(`🌍 Server running on 0.0.0.0:${PORT}`);
+});
+// Manejo de errores del servidor
+server.on('error', (error) => {
+    console.error('❌ Error del servidor:', error);
 });
 // Manejo de cierre graceful
-process.on('SIGTERM', async () => {
-    console.log('Cerrando servidor...');
-    await exports.prisma.$disconnect();
-    process.exit(0);
+let isShuttingDown = false;
+const gracefulShutdown = async (signal) => {
+    if (isShuttingDown) {
+        console.log(`⚠️ Ya estamos cerrando el servidor, ignorando ${signal}`);
+        return;
+    }
+    isShuttingDown = true;
+    console.log(`📥 Señal ${signal} recibida, cerrando servidor gracefully...`);
+    // Detener de aceptar nuevas conexiones
+    server.close(async (err) => {
+        if (err) {
+            console.error('❌ Error cerrando el servidor:', err);
+        }
+        else {
+            console.log('✅ Servidor HTTP cerrado correctamente');
+        }
+        try {
+            console.log('🔌 Desconectando Prisma...');
+            await exports.prisma.$disconnect();
+            console.log('✅ Prisma desconectado correctamente');
+        }
+        catch (error) {
+            console.error('❌ Error desconectando Prisma:', error);
+        }
+        console.log('👋 Proceso terminado');
+        process.exit(0);
+    });
+    // Timeout de seguridad - forzar cierre después de 10 segundos
+    setTimeout(() => {
+        console.log('⏰ Timeout alcanzado, forzando cierre del proceso');
+        process.exit(1);
+    }, 10000);
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// Manejo de errores no capturados
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🚫 Unhandled Rejection at:', promise, 'reason:', reason);
 });
-process.on('SIGINT', async () => {
-    console.log('Cerrando servidor...');
-    await exports.prisma.$disconnect();
-    process.exit(0);
+process.on('uncaughtException', (error) => {
+    console.error('💥 Uncaught Exception:', error);
+    gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
+// Log de inicio exitoso
+console.log('🎯 Aplicación iniciada correctamente');
+console.log('🔗 Variables de entorno:');
+console.log(`   PORT: ${PORT}`);
+console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+console.log(`   DATABASE_URL: ${process.env.DATABASE_URL ? '✅ Configurada' : '❌ No configurada'}`);
