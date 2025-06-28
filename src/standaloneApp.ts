@@ -34,57 +34,54 @@ export async function main() {
         log('💰 Creando cuentas...', 'info');
         await seedAccounts();
         
-        const route2CashAccount = await prisma.route.create({
+        // Crear accounts con routes anidados (corrección de relaciones)
+        const cashAccount = await prisma.account.create({
             data: {
-                name: 'Ruta 2',
-                account: {
+                name: 'Ruta 2 Caja',
+                type: 'EMPLOYEE_CASH_FUND',
+                amount: "0",
+                route: {
                     create: {
-                        name: 'Ruta 2 Caja',
-                        type: 'EMPLOYEE_CASH_FUND',
-                        amount: "0",
+                        name: 'Ruta 2 Cash Route'
                     }
                 }
             },
-            include: {
-                account: true,
-            }
+            include: { route: true }
         });
         
-        const route2BankAccount = await prisma.route.create({
+        const bankAccount = await prisma.account.create({
             data: {
-                name: 'Ruta 2',
-                account: {
+                name: 'Ruta 2 Banco',
+                type: 'BANK',
+                amount: "0",
+                route: {
                     create: {
-                        name: 'Ruta 2 Banco',
-                        type: 'BANK',
-                        amount: "0",
+                        name: 'Ruta 2 Bank Route'
                     }
                 }
             },
-            include: {
-                account: true,
-            }
+            include: { route: true }
         });
         
-        if (route2CashAccount.account?.id && route2BankAccount.account?.id) {
+        if (cashAccount.id && bankAccount.id) {
             log('👥 Seeding leads...', 'info');
-            await seedLeads(route2CashAccount.id);
+            await seedLeads(cashAccount.route?.id || '');
             
             log('💳 Seeding préstamos (OPTIMIZADO)...', 'info');
-            await seedLoans(route2CashAccount.account?.id, route2BankAccount.account?.id);
+            await seedLoans(cashAccount.id, bankAccount.id);
             
             log('💸 Seeding gastos...', 'info');
-            await seedExpenses(route2CashAccount.account?.id, route2BankAccount.account?.id);
+            await seedExpenses(cashAccount.id, bankAccount.id);
             
             log('💼 Seeding nómina...', 'info');
-            await seedNomina(route2BankAccount.account?.id);
+            await seedNomina(bankAccount.id);
             
             log('✅ Datos guardados en la base de datos', 'success');
             
             log('📊 Generando reportes...', 'info');
             const yearResume = await getYearResume(
-                route2CashAccount.account?.id ?? '',
-                route2BankAccount.account?.id,
+                cashAccount.id,
+                bankAccount.id,
                 2024
             );
             
@@ -102,8 +99,8 @@ export async function main() {
             log(`📈 Total Annual Balance with Reinvest 2024: ${totalAnnualBalanceWithReinvest}`, 'success');
 
             const yearResume2023 = await getYearResume(
-                route2CashAccount.account?.id ?? '',
-                route2BankAccount.account?.id,
+                cashAccount.id,
+                bankAccount.id,
                 2023
             );
             console.table(yearResume2023);

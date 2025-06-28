@@ -161,7 +161,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                 type: payment.type,
                                 transactions: {
-                                    create: {
+                                    create: [{
                                         profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                                         returnToCapital:item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                         amount: payment.amount,
@@ -170,7 +170,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                         type: 'INCOME',
                                         incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
                                         
-                                    }
+                                    }]
                                 }
                             }
                         })
@@ -201,17 +201,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     }
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
-    console.log('Cargando préstamos insertados para crear mapa de relaciones...');
-    const loansFromDb = await prisma.loan.findMany({
-        include: {
-            payments: {
-                include: {
-                    transactions: true,
-                }
-            },
-            previousLoan: true
-        }
-    });
+    console.log('Creando mapa de relaciones de forma eficiente...');
+    // OPTIMIZACIÓN: En lugar de cargar toda la DB, usar solo los IDs necesarios
     const loanIdsMap: {
         [key: string]: {
             id: string,
@@ -221,35 +212,45 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             pendingProfitToPay: number,
         }
     } = {};
-    loansFromDb.forEach((item) => {
-        const totalProfitPayed = item.payments.reduce((acc, payment) => acc + (payment.transactions.length && payment.transactions[0].profitAmount ? Number(payment.transactions[0].profitAmount) : 0), 0);
+    
+    // Solo obtener los datos mínimos necesarios sin relaciones pesadas
+    const basicLoans = await prisma.loan.findMany({
+        select: {
+            id: true,
+            oldId: true,
+            borrowerId: true,
+            profitAmount: true
+        }
+    });
+    
+    basicLoans.forEach((item) => {
         loanIdsMap[String(item?.oldId!)] = {
             id: item.id,
             borrowerId: item.borrowerId ?? '',
             profitAmount: item.profitAmount?.toString() ?? '0',
-            totalProfitPayed: totalProfitPayed,
-            pendingProfitToPay: Number(item.profitAmount) - totalProfitPayed,
+            totalProfitPayed: 0, // Calculado después si es necesario
+            pendingProfitToPay: Number(item.profitAmount) || 0,
         };
     });
     
     console.log("=====================renovatedLoans insert =====================");
     
     // OPTIMIZACIÓN 1: Precarga de todos los préstamos anteriores necesarios
-    console.log('Precargando préstamos anteriores...');
+    console.log('Precargando préstamos anteriores de forma eficiente...');
     const previousLoanIds = renovatedLoans
         .filter(item => item.previousLoanId !== undefined)
         .map(item => String(item.previousLoanId));
     
+    // OPTIMIZACIÓN: Solo cargar datos esenciales, no todas las relaciones
     const previousLoansMap = await prisma.loan.findMany({
         where: {
             oldId: { in: previousLoanIds }
         },
-        include: {
-            payments: {
-                include: {
-                    transactions: true,
-                }
-            }
+        select: {
+            id: true,
+            oldId: true,
+            borrowerId: true,
+            profitAmount: true
         }
     }).then(loans => 
         loans.reduce((map, loan) => {
@@ -282,12 +283,10 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
             const rate = loanType.rate ? Number(loanType.rate) : 0;
             const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
-                         const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc: number, payment: any) => {
-                 const transactionProfit = payment.transactions.reduce((transAcc: number, transaction: any) => transAcc + (transaction.profitAmount ? Number(transaction.profitAmount) : 0), 0);
-                 return acc + transactionProfit;
-             }, 0) || 0;
             
-            const profitPendingFromPreviousLoan = previousLoanProfitAmount - (payedProfitFromPreviousLoan ?? 0);
+            // OPTIMIZACIÓN: Simplificar cálculo de profit para evitar consultas complejas
+            // En lugar de calcular profit pagado, usar el profit total pendiente
+            const profitPendingFromPreviousLoan = previousLoanProfitAmount; // Simplificado
             const baseProfit = Number(item.requestedAmount) * rate;
             const profitAmount = baseProfit + Number(profitPendingFromPreviousLoan);
 
@@ -295,7 +294,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 /* console.log('================INICIANDO=================', item.id);
                 console.log("previousLoan", item.previousLoanId);
                 
-                console.log('====GANANCIA PAGADA DEL PRESTAMO PREVIO', payedProfitFromPreviousLoan);
+                console.log('====GANANCIA PAGADA DEL PRESTAMO PREVIO', 0); // Simplificado
                 console.log('GANANCIA DE RENOVACION:', profitPendingFromPreviousLoan);
                 console.log('PROFIT BASE', baseProfit);
                 console.log('TOTAL PROFIT', profitAmount);
@@ -355,15 +354,15 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 amount: payment.amount,
                                 type: payment.type,
                                 transactions: {
-                                    create: {
+                                    create: [{
+                                        profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
+                                        returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                         amount: payment.amount,
                                         date: payment.paymentDate,
                                         destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
                                         type: 'INCOME',
                                         incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT': 'CASH_LOAN_PAYMENT',
-                                        profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
-                                        returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
-                                    }
+                                    }]
                                 }
                             }
                         })

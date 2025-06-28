@@ -1,16 +1,20 @@
-import express from 'express';
-import { PrismaClient } from '@prisma/client';
-import { cleanUpDb } from './utils';
-import { seedLoans } from './loan';
-import { seedExpenses } from './expenses';
-import { seedAccounts } from './account';
-import { seedLeads } from './leads';
-import { getYearResume } from './report/month';
-import { seedNomina } from './nomina';
-
-const app = express();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.prisma = void 0;
+const express_1 = __importDefault(require("express"));
+const client_1 = require("@prisma/client");
+const utils_1 = require("./utils");
+const loan_1 = require("./loan");
+const expenses_1 = require("./expenses");
+const account_1 = require("./account");
+const leads_1 = require("./leads");
+const month_1 = require("./report/month");
+const nomina_1 = require("./nomina");
+const app = (0, express_1.default)();
 const port = process.env.PORT || 3000;
-
 // ⏰ CONFIGURACIÓN DE TIMEOUTS LARGOS PARA RENDER
 app.use((req, res, next) => {
     // Timeout de 20 minutos para requests largas (máximo en Render)
@@ -18,37 +22,32 @@ app.use((req, res, next) => {
     res.setTimeout(20 * 60 * 1000); // 20 minutos
     next();
 });
-
 // 🚀 CONFIGURACIÓN DE SERVIDOR PARA PROCESOS LARGOS
 const server = app.listen(port, () => {
     console.log(`🚀 Servidor corriendo en puerto ${port}`);
     console.log(`📍 URL principal: http://localhost:${port}`);
     console.log(`🔗 Iniciar sync: http://localhost:${port}/sync`);
 });
-
 // Timeout del servidor a 25 minutos (más que el request)
 server.timeout = 25 * 60 * 1000; // 25 minutos
 server.keepAliveTimeout = 24 * 60 * 1000; // 24 minutos
 server.headersTimeout = 25 * 60 * 1000; // 25 minutos
-
-export const prisma = new PrismaClient({
+exports.prisma = new client_1.PrismaClient({
     log: process.env.NODE_ENV === 'production' ? ['info', 'warn', 'error'] : ['query', 'info', 'warn', 'error'],
 });
-
 // Variables globales para tracking del progreso
 let isSeeding = false;
 let seedingProgress = {
     status: 'idle',
     currentStep: '',
     progress: 0,
-    logs: [] as string[],
-    startTime: null as Date | null,
-    endTime: null as Date | null,
-    error: null as string | null
+    logs: [],
+    startTime: null,
+    endTime: null,
+    error: null
 };
-
 // Función para logging
-const addLog = (message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') => {
+const addLog = (message, type = 'info') => {
     const timestamp = new Date().toISOString();
     const symbols = { info: 'ℹ️', success: '✅', error: '❌', warn: '⚠️' };
     const logMessage = `${symbols[type]} [${timestamp}] ${message}`;
@@ -59,11 +58,9 @@ const addLog = (message: string, type: 'info' | 'success' | 'error' | 'warn' = '
         seedingProgress.logs = seedingProgress.logs.slice(-100);
     }
 };
-
 // Middleware
-app.use(express.json());
-app.use(express.static('public'));
-
+app.use(express_1.default.json());
+app.use(express_1.default.static('public'));
 // Ruta principal
 app.get('/', (req, res) => {
     res.send(`
@@ -175,17 +172,15 @@ app.get('/', (req, res) => {
         </html>
     `);
 });
-
 // Ruta para iniciar sincronización
 app.get('/sync', async (req, res) => {
     if (isSeeding) {
-        return res.json({ 
-            success: false, 
+        return res.json({
+            success: false,
             message: 'Ya hay una sincronización en curso',
-            status: seedingProgress.status 
+            status: seedingProgress.status
         });
     }
-
     // Iniciar proceso de seeding
     isSeeding = true;
     seedingProgress = {
@@ -197,38 +192,32 @@ app.get('/sync', async (req, res) => {
         endTime: null,
         error: null
     };
-
     // Ejecutar seeding en background
     runSeeding().finally(() => {
         isSeeding = false;
     });
-
-    res.json({ 
-        success: true, 
+    res.json({
+        success: true,
         message: 'Sincronización iniciada',
         redirect: '/'
     });
 });
-
 // Función principal de seeding
 async function runSeeding() {
     try {
         addLog('🚀 INICIANDO SEEDER EN RENDER CLOUD', 'info');
         addLog(`📍 Entorno: ${process.env.NODE_ENV || 'development'}`, 'info');
         addLog(`🗄️ Base de datos: ${process.env.DATABASE_URL ? 'Conectada' : 'No configurada'}`, 'info');
-
         seedingProgress.currentStep = 'Limpiando base de datos';
         seedingProgress.progress = 5;
         addLog('🧹 Limpiando base de datos...', 'info');
-        await cleanUpDb();
-
+        await (0, utils_1.cleanUpDb)();
         seedingProgress.currentStep = 'Creando cuentas';
         seedingProgress.progress = 10;
         addLog('💰 Creando cuentas...', 'info');
-        await seedAccounts();
-
+        await (0, account_1.seedAccounts)();
         // Crear accounts con routes anidados (corrección de relaciones)
-        const cashAccount = await prisma.account.create({
+        const cashAccount = await exports.prisma.account.create({
             data: {
                 name: 'Ruta 2 Caja',
                 type: 'EMPLOYEE_CASH_FUND',
@@ -241,8 +230,7 @@ async function runSeeding() {
             },
             include: { route: true }
         });
-
-        const bankAccount = await prisma.account.create({
+        const bankAccount = await exports.prisma.account.create({
             data: {
                 name: 'Ruta 2 Banco',
                 type: 'BANK',
@@ -255,59 +243,45 @@ async function runSeeding() {
             },
             include: { route: true }
         });
-
         if (cashAccount.id && bankAccount.id) {
             seedingProgress.currentStep = 'Seeding leads';
             seedingProgress.progress = 20;
             addLog('👥 Seeding leads...', 'info');
-            await seedLeads(cashAccount.route?.id || '');
-
+            await (0, leads_1.seedLeads)(cashAccount.route?.id || '');
             seedingProgress.currentStep = 'Seeding préstamos (OPTIMIZADO)';
             seedingProgress.progress = 30;
             addLog('💳 Seeding préstamos (OPTIMIZADO)...', 'info');
-            await seedLoans(cashAccount.id, bankAccount.id);
-
+            await (0, loan_1.seedLoans)(cashAccount.id, bankAccount.id);
             seedingProgress.currentStep = 'Seeding gastos';
             seedingProgress.progress = 70;
             addLog('💸 Seeding gastos...', 'info');
-            await seedExpenses(cashAccount.id, bankAccount.id);
-
+            await (0, expenses_1.seedExpenses)(cashAccount.id, bankAccount.id);
             seedingProgress.currentStep = 'Seeding nómina';
             seedingProgress.progress = 80;
             addLog('💼 Seeding nómina...', 'info');
-            await seedNomina(bankAccount.id);
-
+            await (0, nomina_1.seedNomina)(bankAccount.id);
             seedingProgress.currentStep = 'Generando reportes';
             seedingProgress.progress = 90;
             addLog('📊 Generando reportes...', 'info');
-            
-            const yearResume = await getYearResume(
-                cashAccount.id,
-                bankAccount.id,
-                2024
-            );
-
+            const yearResume = await (0, month_1.getYearResume)(cashAccount.id, bankAccount.id, 2024);
             let totalAnnualBalance = 0;
             let totalAnnualBalanceWithReinvest = 0;
-
             for (const month of Object.keys(yearResume)) {
                 totalAnnualBalance += yearResume[month].balance || 0;
                 totalAnnualBalanceWithReinvest += yearResume[month].balanceWithReinvest || 0;
             }
-
             addLog(`💰 Total Annual Balance 2024: ${totalAnnualBalance}`, 'success');
             addLog(`📈 Total Annual Balance with Reinvest 2024: ${totalAnnualBalanceWithReinvest}`, 'success');
-
             seedingProgress.currentStep = 'Completado';
             seedingProgress.progress = 100;
             seedingProgress.status = 'completed';
             seedingProgress.endTime = new Date();
-            
-            const totalTime = (seedingProgress.endTime.getTime() - seedingProgress.startTime!.getTime()) / 1000;
+            const totalTime = (seedingProgress.endTime.getTime() - seedingProgress.startTime.getTime()) / 1000;
             addLog(`🏁 SEEDER COMPLETADO EN RENDER - Tiempo total: ${totalTime}s`, 'success');
             addLog(`⚡ Speedup vs Local: ~${Math.round(totalTime * 3)}s ahorrados`, 'success');
         }
-    } catch (error) {
+    }
+    catch (error) {
         seedingProgress.status = 'error';
         seedingProgress.error = error instanceof Error ? error.message : String(error);
         seedingProgress.endTime = new Date();
@@ -315,27 +289,23 @@ async function runSeeding() {
         throw error;
     }
 }
-
 // Ruta para obtener estado
 app.get('/status', (req, res) => {
     res.json(seedingProgress);
 });
-
 // Ruta para limpiar logs
 app.get('/clear-logs', (req, res) => {
     seedingProgress.logs = [];
     addLog('🗑️ Logs limpiados', 'info');
     res.redirect('/');
 });
-
 // Health check
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'healthy', 
+    res.json({
+        status: 'healthy',
         timestamp: new Date().toISOString(),
         seeding: isSeeding,
         database: process.env.DATABASE_URL ? 'connected' : 'not configured'
     });
 });
-
-export default app; 
+exports.default = app;
