@@ -76,106 +76,110 @@ const saveDataToDB = async (loans, cashAccountId, bankAccount, payments) => {
         /*         console.log('NO EMPLOYEE IDS MAP'); */
         return;
     }
-    // Batches razonables - optimizado para velocidad
-    const batches = (0, utils_1.chunkArray)(notRenovatedLoans, 50);
-    console.log(`Procesando ${notRenovatedLoans.length} préstamos NO renovados en ${batches.length} batches de 50`);
+    // Batches ULTRA pequeños para evitar crashes
+    const batches = (0, utils_1.chunkArray)(notRenovatedLoans, 5); // Reducido de 50 a 5
+    console.log(`Procesando ${notRenovatedLoans.length} préstamos NO renovados en ${batches.length} batches de 5`);
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
         console.log(`Procesando batch de préstamos NO renovados ${batchIndex + 1}/${batches.length} (${batch.length} préstamos)`);
-        const transactionPromises = batch.map(item => {
+        // Procesar uno por uno en lugar de transacción masiva
+        for (const item of batch) {
             if (!groupedPayments[item.id]) {
                 console.log('No payments for loan', item.id);
-                return;
+                continue;
             }
-            return standaloneApp_1.prisma.loan.create({
-                data: {
-                    borrower: {
-                        create: {
-                            personalData: {
-                                create: {
-                                    fullName: String(item.fullName),
-                                    phones: item.titularPhone && !["NA", "N/A", "N", undefined, "undefined", "PENDIENTE", ""].includes(item.titularPhone) ? {
-                                        create: {
-                                            number: item.titularPhone ? String(item.titularPhone) : ""
-                                        }
-                                    } : undefined,
-                                }
+            try {
+                await standaloneApp_1.prisma.loan.create({
+                    data: {
+                        borrower: {
+                            create: {
+                                personalData: {
+                                    create: {
+                                        fullName: String(item.fullName),
+                                        phones: item.titularPhone && !["NA", "N/A", "N", undefined, "undefined", "PENDIENTE", ""].includes(item.titularPhone) ? {
+                                            create: {
+                                                number: item.titularPhone ? String(item.titularPhone) : ""
+                                            }
+                                        } : undefined,
+                                    }
+                                },
                             },
                         },
-                    },
-                    loantype: {
-                        connect: {
-                            id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
-                        }
-                    },
-                    lead: {
-                        connect: {
-                            id: employeeIdsMap[item.leadId],
-                        }
-                    },
-                    oldId: item.id.toString(),
-                    badDebtDate: item.badDebtDate,
-                    payments: {
-                        create: groupedPayments[item.id].map(payment => {
-                            const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
-                            const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
-                            const rate = loanType.rate ? Number(loanType.rate) : 0;
-                            const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
-                            const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
-                            if (["1873"].includes(item.id.toString())) {
-                                /* console.log('================INICIANDO=================', item.id);
-                                console.log("previousLoan", item.previousLoanId);
-                                console.log("RATE", rate);
-                                console.log('PROFIT BASE', baseProfit);
-                                console.log('Payment PROFIT', profitAmount);
-                                
-                                console.log("PAYMENT AMOUNT", payment.amount);
-                                console.log("payment  capital", payment.amount - profitAmount);
-                                console.log('====FINALIZADO===', item.requestedAmount); */
+                        loantype: {
+                            connect: {
+                                id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
                             }
-                            return {
-                                oldLoanId: String(item.id),
-                                receivedAt: payment.paymentDate,
-                                amount: payment.amount,
-                                //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
-                                //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
-                                type: payment.type,
-                                transactions: {
-                                    create: [{
-                                            profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate ? payment.amount : profitAmount,
-                                            returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0 : payment.amount - profitAmount,
-                                            amount: payment.amount,
-                                            date: payment.paymentDate,
-                                            destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount : cashAccountId,
-                                            type: 'INCOME',
-                                            incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT' : 'CASH_LOAN_PAYMENT',
-                                        }]
+                        },
+                        lead: {
+                            connect: {
+                                id: employeeIdsMap[item.leadId],
+                            }
+                        },
+                        oldId: item.id.toString(),
+                        badDebtDate: item.badDebtDate,
+                        payments: {
+                            create: groupedPayments[item.id].map(payment => {
+                                const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
+                                const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
+                                const rate = loanType.rate ? Number(loanType.rate) : 0;
+                                const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
+                                const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
+                                if (["1873"].includes(item.id.toString())) {
+                                    /* console.log('================INICIANDO=================', item.id);
+                                    console.log("previousLoan", item.previousLoanId);
+                                    console.log("RATE", rate);
+                                    console.log('PROFIT BASE', baseProfit);
+                                    console.log('Payment PROFIT', profitAmount);
+                                    
+                                    console.log("PAYMENT AMOUNT", payment.amount);
+                                    console.log("payment  capital", payment.amount - profitAmount);
+                                    console.log('====FINALIZADO===', item.requestedAmount); */
                                 }
-                            };
-                        })
-                    },
-                    signDate: item.givedDate,
-                    amountGived: item.givedAmount.toString(),
-                    requestedAmount: item.requestedAmount.toString(),
-                    avalName: item.avalName,
-                    avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
-                    finishedDate: item.finishedDate,
-                    profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
-                    transactions: {
-                        create: [{
-                                amount: item.givedAmount,
-                                date: item.givedDate,
-                                sourceAccountId: cashAccountId,
-                                type: 'EXPENSE',
-                                expenseSource: 'LOAN_GRANTED',
-                            }]
+                                return {
+                                    oldLoanId: String(item.id),
+                                    receivedAt: payment.paymentDate,
+                                    amount: payment.amount,
+                                    //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
+                                    //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
+                                    type: payment.type,
+                                    transactions: {
+                                        create: [{
+                                                profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate ? payment.amount : profitAmount,
+                                                returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0 : payment.amount - profitAmount,
+                                                amount: payment.amount,
+                                                date: payment.paymentDate,
+                                                destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount : cashAccountId,
+                                                type: 'INCOME',
+                                                incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT' : 'CASH_LOAN_PAYMENT',
+                                            }]
+                                    }
+                                };
+                            })
+                        },
+                        signDate: item.givedDate,
+                        amountGived: item.givedAmount.toString(),
+                        requestedAmount: item.requestedAmount.toString(),
+                        avalName: item.avalName,
+                        avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
+                        finishedDate: item.finishedDate,
+                        profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
+                        transactions: {
+                            create: [{
+                                    amount: item.givedAmount,
+                                    date: item.givedDate,
+                                    sourceAccountId: cashAccountId,
+                                    type: 'EXPENSE',
+                                    expenseSource: 'LOAN_GRANTED',
+                                }]
+                        }
                     }
-                }
-            });
-        });
-        const validPromises = transactionPromises.filter(item => item !== undefined);
-        await standaloneApp_1.prisma.$transaction(validPromises);
-        console.log(`Batch ${batchIndex + 1} de préstamos NO renovados completado: ${validPromises.length} préstamos creados`);
+                });
+            }
+            catch (error) {
+                console.error(`Error al crear préstamo ${item.id}:`, error);
+            }
+        }
+        console.log(`Batch ${batchIndex + 1} de préstamos NO renovados completado`);
     }
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
     console.log('Creando mapa de relaciones de forma eficiente...');
@@ -221,119 +225,112 @@ const saveDataToDB = async (loans, cashAccountId, bankAccount, payments) => {
         return map;
     }, {}));
     console.log(`Préstamos anteriores cargados: ${Object.keys(previousLoansMap).length}`);
-    // OPTIMIZACIÓN 2: Procesar en batches con Promise.all
-    const renovatedBatches = (0, utils_1.chunkArray)(renovatedLoans, 100); // Batches razonables para velocidad
+    // OPTIMIZACIÓN 2: Procesar en batches pequeños uno por uno
+    const renovatedBatches = (0, utils_1.chunkArray)(renovatedLoans, 10); // Reducido de 100 a 10
     console.log(`Procesando ${renovatedLoans.length} préstamos renovados en ${renovatedBatches.length} batches`);
     for (let batchIndex = 0; batchIndex < renovatedBatches.length; batchIndex++) {
         const batch = renovatedBatches[batchIndex];
         console.log(`Procesando batch ${batchIndex + 1}/${renovatedBatches.length} (${batch.length} préstamos)`);
-        const batchPromises = batch.map(async (item) => {
+        // Procesar uno por uno en lugar de Promise.all
+        for (const item of batch) {
             if (!item.previousLoanId) {
-                return null;
+                continue;
             }
             const previousLoan = previousLoansMap[String(item.previousLoanId)];
             if (!previousLoan) {
                 console.log(`Préstamo anterior no encontrado para ID: ${item.previousLoanId}`);
-                return null;
+                continue;
             }
-            const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
-            const rate = loanType.rate ? Number(loanType.rate) : 0;
-            const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
-            // OPTIMIZACIÓN: Simplificar cálculo de profit para evitar consultas complejas
-            // En lugar de calcular profit pagado, usar el profit total pendiente
-            const profitPendingFromPreviousLoan = previousLoanProfitAmount; // Simplificado
-            const baseProfit = Number(item.requestedAmount) * rate;
-            const profitAmount = baseProfit + Number(profitPendingFromPreviousLoan);
-            if (["1338"].includes(item.id.toString())) {
-                /* console.log('================INICIANDO=================', item.id);
-                console.log("previousLoan", item.previousLoanId);
-                
-                console.log('====GANANCIA PAGADA DEL PRESTAMO PREVIO', 0); // Simplificado
-                console.log('GANANCIA DE RENOVACION:', profitPendingFromPreviousLoan);
-                console.log('PROFIT BASE', baseProfit);
-                console.log('TOTAL PROFIT', profitAmount);
-                console.log('====FINALIZADO===', item.requestedAmount); */
-            }
-            return standaloneApp_1.prisma.loan.create({
-                data: {
-                    oldId: item.id.toString(),
-                    signDate: item.givedDate,
-                    amountGived: item.givedAmount.toString(),
-                    requestedAmount: item.requestedAmount.toString(),
-                    badDebtDate: item.badDebtDate,
-                    loantype: {
-                        connect: {
-                            id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
+            try {
+                const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
+                const rate = loanType.rate ? Number(loanType.rate) : 0;
+                const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
+                // OPTIMIZACIÓN: Simplificar cálculo de profit para evitar consultas complejas
+                // En lugar de calcular profit pagado, usar el profit total pendiente
+                const profitPendingFromPreviousLoan = previousLoanProfitAmount; // Simplificado
+                const baseProfit = Number(item.requestedAmount) * rate;
+                const profitAmount = baseProfit + Number(profitPendingFromPreviousLoan);
+                await standaloneApp_1.prisma.loan.create({
+                    data: {
+                        oldId: item.id.toString(),
+                        signDate: item.givedDate,
+                        amountGived: item.givedAmount.toString(),
+                        requestedAmount: item.requestedAmount.toString(),
+                        badDebtDate: item.badDebtDate,
+                        loantype: {
+                            connect: {
+                                id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
+                            },
                         },
-                    },
-                    lead: {
-                        connect: {
-                            id: employeeIdsMap[item.leadId],
-                        }
-                    },
-                    avalName: item.avalName,
-                    avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
-                    finishedDate: item.finishedDate,
-                    borrower: previousLoan?.borrowerId ? {
-                        connect: {
-                            id: previousLoan.borrowerId,
-                        }
-                    } : undefined,
-                    previousLoan: previousLoan ? {
-                        connect: {
-                            id: previousLoan.id,
-                        }
-                    } : undefined,
-                    profitAmount: profitAmount.toString(),
-                    payments: groupedPayments[item.id] ? {
-                        create: groupedPayments[item.id].map(payment => {
-                            const baseProfit = Number(item.requestedAmount) * rate;
-                            const loanTotalProfit = baseProfit + profitPendingFromPreviousLoan;
-                            const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
-                            const profitAmount = (payment.amount * loanTotalProfit) / Number(totalAmountToPay);
-                            if (["3292"].includes(item.id.toString())) {
-                                /* console.log('================INICIANDO=================', item.id);
-                                console.log("previousLoan", item.previousLoanId);
-                                console.log("profitPendingFromPreviousLoan", profitPendingFromPreviousLoan);
-                                console.log('====loanTotalProfit', loanTotalProfit);
-                                console.log('====totalAmountToPay', totalAmountToPay);
-                                console.log('====profitAmount', profitAmount); */
+                        lead: {
+                            connect: {
+                                id: employeeIdsMap[item.leadId],
                             }
-                            return {
-                                oldLoanId: String(item.id),
-                                receivedAt: payment.paymentDate,
-                                amount: payment.amount,
-                                type: payment.type,
-                                transactions: {
-                                    create: [{
-                                            profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate ? payment.amount : profitAmount,
-                                            returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0 : payment.amount - profitAmount,
-                                            amount: payment.amount,
-                                            date: payment.paymentDate,
-                                            destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount : cashAccountId,
-                                            type: 'INCOME',
-                                            incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT' : 'CASH_LOAN_PAYMENT',
-                                        }]
+                        },
+                        avalName: item.avalName,
+                        avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
+                        finishedDate: item.finishedDate,
+                        borrower: previousLoan?.borrowerId ? {
+                            connect: {
+                                id: previousLoan.borrowerId,
+                            }
+                        } : undefined,
+                        previousLoan: previousLoan ? {
+                            connect: {
+                                id: previousLoan.id,
+                            }
+                        } : undefined,
+                        profitAmount: profitAmount.toString(),
+                        payments: groupedPayments[item.id] ? {
+                            create: groupedPayments[item.id].map(payment => {
+                                const baseProfit = Number(item.requestedAmount) * rate;
+                                const loanTotalProfit = baseProfit + profitPendingFromPreviousLoan;
+                                const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
+                                const profitAmount = (payment.amount * loanTotalProfit) / Number(totalAmountToPay);
+                                if (["3292"].includes(item.id.toString())) {
+                                    /* console.log('================INICIANDO=================', item.id);
+                                    console.log("previousLoan", item.previousLoanId);
+                                    console.log("profitPendingFromPreviousLoan", profitPendingFromPreviousLoan);
+                                    console.log('====loanTotalProfit', loanTotalProfit);
+                                    console.log('====totalAmountToPay', totalAmountToPay);
+                                    console.log('====profitAmount', profitAmount); */
                                 }
-                            };
-                        })
-                    } : undefined,
-                    transactions: {
-                        create: {
-                            amount: item.givedAmount,
-                            date: item.givedDate,
-                            sourceAccountId: cashAccountId,
-                            type: 'EXPENSE',
-                            expenseSource: 'LOAN_GRANTED',
+                                return {
+                                    oldLoanId: String(item.id),
+                                    receivedAt: payment.paymentDate,
+                                    amount: payment.amount,
+                                    type: payment.type,
+                                    transactions: {
+                                        create: [{
+                                                profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate ? payment.amount : profitAmount,
+                                                returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0 : payment.amount - profitAmount,
+                                                amount: payment.amount,
+                                                date: payment.paymentDate,
+                                                destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount : cashAccountId,
+                                                type: 'INCOME',
+                                                incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT' : 'CASH_LOAN_PAYMENT',
+                                            }]
+                                    }
+                                };
+                            })
+                        } : undefined,
+                        transactions: {
+                            create: [{
+                                    amount: item.givedAmount,
+                                    date: item.givedDate,
+                                    sourceAccountId: cashAccountId,
+                                    type: 'EXPENSE',
+                                    expenseSource: 'LOAN_GRANTED',
+                                }]
                         }
                     }
-                }
-            });
-        });
-        // Ejecutar el batch en paralelo y filtrar resultados nulos
-        const batchResults = await Promise.all(batchPromises);
-        const successfulCreations = batchResults.filter(result => result !== null);
-        console.log(`Batch ${batchIndex + 1} completado: ${successfulCreations.length}/${batch.length} préstamos creados exitosamente`);
+                });
+            }
+            catch (error) {
+                console.error(`Error al crear préstamo ${item.id}:`, error);
+            }
+        }
+        console.log(`Batch ${batchIndex + 1} completado`);
     }
     console.log("=====================");
     console.log("=====================");
