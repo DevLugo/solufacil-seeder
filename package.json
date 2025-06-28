@@ -1,11 +1,11 @@
 {
   "name": "my-ts-node-prisma-app",
   "version": "1.0.0",
-  "main": "src/index.ts",
+  "main": "dist/standaloneApp.js",
   "scripts": {
     "dev": "ts-node src/standaloneApp.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "build": "tsc && npx prisma generate",
+    "start": "node dist/standaloneApp.js",
     "run-standalone": "ts-node src/standaloneApp.ts"
   },
   "dependencies": {
