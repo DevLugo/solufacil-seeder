@@ -20,7 +20,7 @@ async function main() {
     const route2CashAccount = await prisma.route.create({
         data: {
             name: 'Ruta 2',
-            account: {
+            accounts: {
                 create: {
                     name: 'Ruta 2 Caja',
                     type: 'EMPLOYEE_CASH_FUND',
@@ -29,13 +29,13 @@ async function main() {
             }
         },
         include: {
-            account: true,
+            accounts: true,
         }
     });
     const route2BankAccount = await prisma.route.create({
         data: {
             name: 'Ruta 2',
-            account: {
+            accounts: {
                 create: {
                     name: 'Ruta 2 Banco',
                     type: 'BANK',
@@ -44,20 +44,20 @@ async function main() {
             }
         },
         include: {
-            account: true,
+            accounts: true,
         }
     });
-    if (route2CashAccount.account?.id && route2BankAccount.account?.id) {
+    if (route2CashAccount.accounts?.[0]?.id && route2BankAccount.accounts?.[0]?.id) {
         await seedLeads(route2CashAccount.id);
-        await seedLoans(route2CashAccount.account?.id, route2BankAccount.account?.id);
-        await seedExpenses(route2CashAccount.account?.id, route2BankAccount.account?.id);
-        await seedNomina(route2BankAccount.account?.id);
+        await seedLoans(route2CashAccount.accounts[0].id, route2BankAccount.accounts[0].id);
+        await seedExpenses(route2CashAccount.accounts[0].id, route2BankAccount.accounts[0].id);
+        await seedNomina(route2BankAccount.accounts[0].id);
         //await seedPayments(route2.id);
         //TODO: save comision and earned amount on payments
         console.log('Datos guardados en la base de datos');
         const yearResume = await getYearResume(
-            route2CashAccount.account?.id ?? '',
-            route2BankAccount.account?.id,
+            route2CashAccount.accounts[0].id ?? '',
+            route2BankAccount.accounts[0].id,
             2024
         );
         
@@ -75,8 +75,8 @@ async function main() {
         console.log('Total Annual Balance with Reinvest 2024:', totalAnnualBalanceWithReinvest);
 
         const yearResume2023 = await getYearResume(
-            route2CashAccount.account?.id ?? '',
-            route2BankAccount.account?.id,
+            route2CashAccount.accounts[0].id ?? '',
+            route2BankAccount.accounts[0].id,
             2023
         );
         console.table(yearResume2023);

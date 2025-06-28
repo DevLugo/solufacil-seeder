@@ -42,7 +42,7 @@ model Route {
   name       String     @default("")
   employees  Employee[] @relation("Employee_routes")
   localities Location[] @relation("Location_route")
-  account    Account?   @relation("Account_route")
+  accounts   Account[]  @relation("Account_route")
 }
 
 model Location {
@@ -277,7 +277,9 @@ model Account {
   transactions         Transaction[] @relation("Transaction_sourceAccount")
   receivedTransactions Transaction[] @relation("Transaction_destinationAccount")
   route                Route?        @relation("Account_route", fields: [routeId], references: [id])
-  routeId              String?       @unique @map("route")
+  routeId              String?       @map("route")
   updatedAt            DateTime?
   createdAt            DateTime?     @default(now())
+
+  @@index([routeId])
 }
