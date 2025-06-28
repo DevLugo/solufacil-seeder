@@ -13,7 +13,16 @@ const leads_1 = require("./leads");
 const month_1 = require("./report/month");
 const nomina_1 = require("./nomina");
 const express_1 = __importDefault(require("express"));
-exports.prisma = new client_1.PrismaClient();
+// Configurar timeout más largo y garbage collection
+if (global.gc) {
+    console.log('✅ Garbage collection manual disponible');
+}
+else {
+    console.log('⚠️ Garbage collection manual NO disponible');
+}
+exports.prisma = new client_1.PrismaClient({
+    log: ['error', 'warn'], // Reducir logging de Prisma para mejorar performance
+});
 const app = (0, express_1.default)();
 const PORT = Number(process.env.PORT) || 3000;
 let isSeeding = false;

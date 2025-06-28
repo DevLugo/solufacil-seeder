@@ -35,16 +35,15 @@ const extractNominaData = () => {
     return loansData;
 };
 const saveExpensesOnDB = async (data, bankAccountId) => {
-    const batches = (0, utils_1.chunkArray)(data, 1000);
+    const batches = (0, utils_1.chunkArray)(data, 100);
+    console.log(`Processing ${data.length} nomina entries in ${batches.length} batches`);
     const employeeIdsMap = await (0, leads_1.getEmployeeIdsMap)();
-    for (const batch of batches) {
+    let processedCount = 0;
+    for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
         const transactionPromises = batch.map(item => {
             let accountId = bankAccountId;
-            if (!accountId) {
-                /* console.log('NO HAY ACCOUNT ID', item); */
-            }
             if (item.amount === undefined) {
-                /* console.log("NO HAY AMOUNT", item); */
                 return;
             }
             return standaloneApp_1.prisma.transaction.create({
@@ -60,8 +59,13 @@ const saveExpensesOnDB = async (data, bankAccountId) => {
             });
         });
         const cleanedData = transactionPromises.filter(e => e !== undefined);
-        console.log('Saving expenses', cleanedData.length, cleanedData[0]);
         await standaloneApp_1.prisma.$transaction(cleanedData);
+        processedCount += batch.length;
+        console.log(`✅ Nomina batch ${i + 1}/${batches.length} completed (${processedCount}/${data.length})`);
+        // Liberar memoria cada 10 batches
+        if (i % 10 === 0) {
+            global.gc && global.gc();
+        }
     }
 };
 const seedNomina = async (bankAccountId) => {

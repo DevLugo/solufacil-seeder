@@ -38,9 +38,12 @@ const extractExpensesData = () => {
     return loansData;
 };
 const saveExpensesOnDB = async (data, cashAcountId, bankAccountId) => {
-    const batches = (0, utils_1.chunkArray)(data, 1000);
+    const batches = (0, utils_1.chunkArray)(data, 100);
+    console.log(`Processing ${data.length} expenses in ${batches.length} batches`);
     const employeeIdsMap = await (0, leads_1.getEmployeeIdsMap)();
-    for (const batch of batches) {
+    let processedCount = 0;
+    for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
         const transactionPromises = batch.map(item => {
             let accountId;
             if (item.accountType === 'GASTO BANCO' || item.accountType === 'CONNECT') {
@@ -52,10 +55,7 @@ const saveExpensesOnDB = async (data, cashAcountId, bankAccountId) => {
             else {
                 accountId = cashAcountId;
             }
-            if (!accountId)
-                console.log('NO HAY ACCOUNT ID', item);
             if (item.amount === undefined) {
-                console.log("NO HAY AMOUNT", item);
                 return;
             }
             return standaloneApp_1.prisma.transaction.create({
@@ -79,8 +79,13 @@ const saveExpensesOnDB = async (data, cashAcountId, bankAccountId) => {
             });
         });
         const cleanedData = transactionPromises.filter(e => e !== undefined);
-        /* console.log('Saving expenses', cleanedData.length, cleanedData[0]); */
         await standaloneApp_1.prisma.$transaction(cleanedData);
+        processedCount += batch.length;
+        console.log(`✅ Expenses batch ${i + 1}/${batches.length} completed (${processedCount}/${data.length})`);
+        // Liberar memoria cada 10 batches
+        if (i % 10 === 0) {
+            global.gc && global.gc();
+        }
     }
 };
 const seedExpenses = async (accountId, bankAccountId) => {

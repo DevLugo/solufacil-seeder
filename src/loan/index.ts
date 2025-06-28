@@ -90,13 +90,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 /*         console.log('NO EMPLOYEE IDS MAP'); */
         return;
     }
-    // Dividir los datos en lotes de 100 elementos600
-    const batches = chunkArray(notRenovatedLoans, 1000);
-    /* console.log('batches', batches.length); */
-    for (const batch of batches) {
+    // Dividir los datos en lotes de 100 elementos (reducido de 1000)
+    const batches = chunkArray(notRenovatedLoans, 100);
+    console.log(`Processing ${notRenovatedLoans.length} loans in ${batches.length} batches`);
+    
+    let processedCount = 0;
+    for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
         const transactionPromises = batch.map(item => {
             if (!groupedPayments[item.id]) {
-                console.log('No payments for loan', item.id);
+                // Reducir logging durante el proceso
                 return;
             }
             return prisma.loan.create({
@@ -135,27 +138,11 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             const rate = loanType.rate ? Number(loanType.rate) : 0;
                             const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
                             const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
-                            
-                            if(["1873"].includes(item.id.toString())){
-
-                                /* console.log('================INICIANDO=================', item.id);
-                                console.log("previousLoan", item.previousLoanId);
-                                console.log("RATE", rate);
-                                console.log('PROFIT BASE', baseProfit);
-                                console.log('Payment PROFIT', profitAmount);
-                                
-                                console.log("PAYMENT AMOUNT", payment.amount);
-                                console.log("payment  capital", payment.amount - profitAmount);
-                                console.log('====FINALIZADO===', item.requestedAmount); */
-                            }
 
                             return {
                                 oldLoanId: String(item.id),
                                 receivedAt: payment.paymentDate,
                                 amount: payment.amount,
-                                
-                                //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
-                                //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                 type: payment.type,
                                 transactions: {
                                     create: {
@@ -192,9 +179,18 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 }
             });
         });
-        /* console.log('batch', batch.length); */
-        await prisma.$transaction(transactionPromises.filter(item => item !== undefined));
-    };
+        
+        const cleanedPromises = transactionPromises.filter(item => item !== undefined);
+        await prisma.$transaction(cleanedPromises);
+        
+        processedCount += batch.length;
+        console.log(`✅ Batch ${i + 1}/${batches.length} completed (${processedCount}/${notRenovatedLoans.length})`);
+        
+        // Liberar memoria y dar tiempo al GC
+        if (i % 10 === 0) {
+            global.gc && global.gc();
+        }
+    }
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
     const loansFromDb = await prisma.loan.findMany({

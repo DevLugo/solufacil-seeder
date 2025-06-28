@@ -8,7 +8,16 @@ import { getYearResume } from './report/month';
 import { seedNomina } from './nomina';
 import express from 'express';
 
-export const prisma = new PrismaClient();
+// Configurar timeout más largo y garbage collection
+if (global.gc) {
+    console.log('✅ Garbage collection manual disponible');
+} else {
+    console.log('⚠️ Garbage collection manual NO disponible');
+}
+
+export const prisma = new PrismaClient({
+    log: ['error', 'warn'], // Reducir logging de Prisma para mejorar performance
+});
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
