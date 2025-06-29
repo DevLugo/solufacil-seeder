@@ -2,12 +2,12 @@
 
 ## ⚡ **Instalación en 1 comando**
 
-Tu droplet ya está creado con IP: **24.199.127.84**
+Tu droplet ya está creado con IP: **24.199.125.119**
 
 ### 1. **Ejecutar configuración automatizada**
 ```bash
 # Conectar al droplet
-ssh root@24.199.127.84
+ssh root@24.199.125.119
 
 # Ejecutar configuración automatizada (todo en 1 comando)
 curl -sSL https://raw.githubusercontent.com/DevLugo/solufacil-seeder/v1/auto-setup-droplet.sh | bash
@@ -37,7 +37,7 @@ SHADOW_DATABASE_URL="postgresql://tu_usuario:tu_password@tu_host:5432/tu_databas
 ### 3. **Subir archivo Excel**
 Desde tu máquina local:
 ```bash
-scp ruta2.xlsm root@24.199.127.84:/home/app/
+scp ruta2.xlsm root@24.199.125.119:/home/app/
 ```
 
 ### 4. **Iniciar aplicación**
@@ -63,9 +63,9 @@ Tu seeding se ejecutará paso a paso:
 **Total: ~30-40 minutos SIN interrupciones**
 
 ## 🌐 **Acceso Web**
-- Health Check: `http://24.199.127.84:3000/`
-- Status: `http://24.199.127.84:3000/status` 
-- Results: `http://24.199.127.84:3000/results`
+- Health Check: `http://24.199.125.119:3000/`
+- Status: `http://24.199.125.119:3000/status` 
+- Results: `http://24.199.125.119:3000/results`
 
 ## 🔍 **Comandos útiles**
 ```bash

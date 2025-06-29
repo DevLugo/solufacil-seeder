@@ -43,22 +43,30 @@ log "🚀 Configurando Keystone Seeder en DigitalOcean Droplet"
 log "📦 Repositorio: $REPO_URL"
 log "🌿 Rama: $BRANCH"
 log "📁 Directorio: $APP_DIR"
-log "🌐 IP del servidor: $(curl -s ifconfig.me 2>/dev/null || echo 'Obteniendo IP...')"
+log "🌐 IP del servidor: 24.199.125.119"
+
+# Configurar entorno no-interactivo ANTES de cualquier instalación
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
 
 # Actualizar sistema
-log "📦 Actualizando sistema..."
-apt update && apt upgrade -y
+log "📦 Actualizando sistema (modo no-interactivo)..."
+apt update && apt upgrade -y \
+  -o Dpkg::Options::="--force-confdef" \
+  -o Dpkg::Options::="--force-confold" \
+  -o Dpkg::Options::="--force-confnew"
 success "Sistema actualizado"
 
 # Instalar dependencias básicas
 log "📦 Instalando dependencias básicas..."
-apt install -y curl wget git build-essential software-properties-common htop
+apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl wget git build-essential software-properties-common htop
 
 # Instalar Node.js 18 LTS
 log "📦 Instalando Node.js 18 LTS..."
 if ! command_exists node; then
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    apt-get install -y nodejs
+    apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" nodejs
     success "Node.js instalado: $(node --version)"
 else
     success "Node.js ya está instalado: $(node --version)"
@@ -116,7 +124,7 @@ if [ ! -f "ruta2.xlsm" ]; then
     warning "⚠️  Archivo ruta2.xlsm NO encontrado"
     log "📋 ACCIÓN REQUERIDA: Necesitas subir el archivo ruta2.xlsm al directorio $APP_DIR"
     log "💡 Comando desde tu máquina local:"
-    log "   scp ruta2.xlsm root@24.199.127.84:$APP_DIR/"
+    log "   scp ruta2.xlsm root@24.199.125.119:$APP_DIR/"
 else
     success "✅ Archivo ruta2.xlsm encontrado"
 fi
@@ -227,7 +235,7 @@ fi
 pm2 start ecosystem.config.js
 
 echo "✅ Aplicación iniciada"
-echo "🌐 URL: http://24.199.127.84:3000"
+echo "🌐 URL: http://24.199.125.119:3000"
 echo "📊 Estado: pm2 status"
 echo "📋 Logs: pm2 logs keystone-seeder"
 echo ""
@@ -253,7 +261,7 @@ fi
 
 if [ ! -f "ruta2.xlsm" ]; then
     warning "2. 📁 SUBIR ARCHIVO EXCEL:"
-    log "   scp ruta2.xlsm root@24.199.127.84:$APP_DIR/"
+    log "   scp ruta2.xlsm root@24.199.125.119:$APP_DIR/"
     log ""
 fi
 
@@ -267,9 +275,9 @@ log "   ./run-seeding.sh"
 log ""
 
 log "🌐 ACCESO WEB:"
-log "   Health Check: http://24.199.127.84:3000/"
-log "   Status: http://24.199.127.84:3000/status"
-log "   Results: http://24.199.127.84:3000/results"
+log "   Health Check: http://24.199.125.119:3000/"
+log "   Status: http://24.199.125.119:3000/status"
+log "   Results: http://24.199.125.119:3000/results"
 log ""
 
 log "🔍 COMANDOS ÚTILES:"
@@ -279,7 +287,7 @@ log "   pm2 monit           # Monitor de recursos"
 log "   ./run-seeding.sh    # Ejecutar seeding completo"
 log ""
 
-success "✅ Setup completado en IP: 24.199.127.84"
+success "✅ Setup completado en IP: 24.199.125.119"
 
 if [[ $EUID -eq 0 ]]; then
     log ""
