@@ -27,44 +27,48 @@ const excelColumnsRelationship: ExcelLoanRelationship = {
     'AP': 'badDebtDate',
 };
 
-const extractLoanData = (routeName: string) => {
-    const workbook = xlsx.readFile('ruta2.xlsm');
-    const sheetName = 'Prestamos';
+const extractLoanData = (routeName: string, excelFileName: string) => {
+    const workbook = xlsx.readFile(excelFileName);
+    const sheetName = 'CREDITOS_OTORGADOS';
+    console.log('sheetName', sheetName);
     const worksheet = workbook.Sheets[sheetName];
     const data = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+    console.log('data', data.length);
     
-    const loansData = data.slice(1).map((row: any) => {
+    const loansData = data.slice(1)
+    .filter((row: any) => row && row[0] && row[0] !== undefined) // Filtrar filas vacías
+    .map((row: any) => {
         const obj = {
             id: row[0],
             fullName: row[1],
-            givedDate: row[2],
+            givedDate: row[2] ? convertExcelDate(row[2]) : null,
             status: row[3],
             givedAmount: row[4],
             requestedAmount: row[5],
             noWeeks: row[6],
             interestRate: row[7],
             finished: row[8],
-            finishedDate: row[9],
-            leadId: row[10],
-            previousLoanId: row[11],
-            weeklyPaymentAmount: row[12],
-            amountToPay: row[13],
-            avalName: row[14],
-            avalPhone: row[15],
-            titularPhone: row[16],
-            badDebtDate: row[17]
+            finishedDate: row[26] ? convertExcelDate(row[26]) : null,
+            leadId: row[18],
+            previousLoanId: row[30],
+            weeklyPaymentAmount: row[9],
+            amountToPay: row[8],
+            avalName: row[28] ? String(row[28]) : '',
+            avalPhone: row[29] ? String(row[29]) : '',
+            titularPhone: row[30] ? String(row[30]) : '',
+            badDebtDate: row[41] ? convertExcelDate(row[41]) : null
         }
         return obj as Loan;
     });
-    
+    console.log('loansData', loansData.length);
     // Filtrar solo los loans que tengan el routeName en la columna AQ
-    const filteredLoans = loansData.filter((loan: Loan) => {
+    /* const filteredLoans = loansData.filter((loan: Loan) => {
         const routeColumnIndex = xlsx.utils.decode_col('AQ'); // Columna AQ
         const rowIndex = data.findIndex((row: any) => row[0] === loan.id) + 1; // +1 porque empezamos desde slice(1)
         const routeValue = data[rowIndex]?.[routeColumnIndex];
         return routeValue === routeName;
-    });
-    
+    }); */
+    const filteredLoans = loansData;
     return filteredLoans;
 };
 
@@ -79,7 +83,10 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 }, leadMapping?: { [oldId: string]: string }) => {
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
-
+    console.log('notRenovatedLoans', notRenovatedLoans.length);
+    console.log('renovatedLoans', renovatedLoans.length);
+    
+    
     //Create the loanTypes
     const fourteenWeeksId = await prisma.loantype.create({
         data: {
@@ -94,6 +101,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 name: '10 semanas/0%',
                 weekDuration: 10,
                 rate: '0',
+            }
+        },
+    );
+
+    const twentyWeeksId = await prisma.loantype.create(
+        {
+            data: {
+                name: '20 semanas/0%',
+                weekDuration: 20,
+                rate: '0.1',
             }
         },
     );
@@ -114,25 +131,130 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     }
     // Dividir los datos en lotes
     const batches = chunkArray(notRenovatedLoans, 1000);
+    console.log('📊 Total de batches:', batches.length);
+    console.log('📋 Elementos en el primer batch:', batches[0]?.length);
+    console.log('🔍 Último elemento del primer batch:', batches[0]?.[batches[0].length - 1]);
+    console.log('📋 Elementos en el último batch:', batches[batches.length - 1]?.length);
+    console.log('🔍 Último elemento del último batch:', batches[batches.length - 1]?.[batches[batches.length - 1].length - 1]);
+    console.log('❌ Préstamos sin pagos:', notRenovatedLoans.filter(item => !groupedPayments[item.id]).map(item => item.id));
+    console.log('❌ Préstamos sin lead:', notRenovatedLoans.filter(item => !employeeIdsMap[item.leadId.toString()]).map(item => ({ id: item.id, leadId: item.leadId })));
+
     
     let loansWithoutLead = 0;
     let loansProcessed = 0;
     for (const batch of batches) {
         let processedLoans = 0;
         const transactionPromises = batch.map(item => {
-            if (!groupedPayments[item.id]) {
+            /* if (!groupedPayments[item.id]) {
                 return;
-            }
+            } */
             
             // Obtener el ID del lead específico para este préstamo
             const specificLeadId = employeeIdsMap[item.leadId.toString()];
             if(!specificLeadId){
                 console.log(`❌ No lead id found for loan ${item.id}, leadId: ${item.leadId}`);
-                loansWithoutLead++;
+                loansWithoutLead++; 
                 return;
+            }
+            const paymentsForLoan = groupedPayments[item.id] || [];
+            //console.log('item.id', item);
+            if(item.id === 7709){
+                console.log('AKA ANDAMOS2', item);
+                console.log('----cleanedData-----', {
+                    data: {
+                        borrower: {
+                            create: {
+                                personalData: {
+                                    create: {
+                                        fullName: String(item.fullName),
+                                        phones: item.titularPhone && item.titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(item.titularPhone) ? {
+                                            create: {
+                                                number: item.titularPhone ? String(item.titularPhone) : ""
+                                            }
+                                        }: undefined,
+                                    }
+                                },
+                            },
+                        },
+                        loantype: {
+                            connect: {
+                                id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
+                            }
+                        },
+                        lead: {
+                            connect: {
+                                id: specificLeadId,
+                            }
+                        },
+                        oldId: item.id.toString(),
+                        badDebtDate: item.badDebtDate,
+                        snapshotRouteId: snapshotData.routeId,
+                        snapshotRouteName: snapshotData.routeName,
+                        snapshotLeadId: specificLeadId,
+                        snapshotLeadAssignedAt: snapshotData.leadAssignedAt,
+                        payments: {
+                            create: groupedPayments[item.id]?.map(payment => {
+                                const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
+                                
+                                const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
+                                const rate = loanType.rate ? Number(loanType.rate) : 0;
+                                const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
+                                const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
+                                
+                                if(["1873"].includes(item.id.toString())){
+                                    // Logs comentados removidos
+                                }
+    
+                                return {
+                                    oldLoanId: String(item.id),
+                                    receivedAt: payment.paymentDate,
+                                    amount: payment.amount,
+                                    
+                                    //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
+                                    //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
+                                    type: payment.type,
+                                    transactions: {
+                                        create: {
+                                            profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
+                                            returnToCapital:item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
+                                            amount: payment.amount,
+                                            date: payment.paymentDate,
+                                            destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
+                                            type: 'INCOME',
+                                            incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
+                                            // Agregar solo el campo de snapshot que existe en Transaction
+                                            snapshotLeadId: specificLeadId, // Usar el ID del lead específico
+                                        }
+                                    }
+                                }
+                            })
+    
+                        },
+                        signDate: item.givedDate,
+                        amountGived: item.givedAmount.toString(),
+                        requestedAmount: item.requestedAmount.toString(),
+                        avalName: item.avalName,
+                        avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
+                        finishedDate: item.finishedDate,
+                        profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
+                        transactions: {
+                            create: [{
+                                amount: item.givedAmount,
+                                date: item.givedDate,
+                                sourceAccountId: cashAccountId,
+                                type: 'EXPENSE',
+                                expenseSource: 'LOAN_GRANTED',
+                                // Agregar solo el campo de snapshot que existe en Transaction
+                                /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
+                            }]
+                        }
+                    }
+                }
+                );
             }
             processedLoans++;
             
+
             return prisma.loan.create({
                 data: {
                     borrower: {
@@ -140,7 +262,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             personalData: {
                                 create: {
                                     fullName: String(item.fullName),
-                                    phones: item.titularPhone && !["NA", "N/A", "N", undefined, "undefined", "PENDIENTE", ""].includes(item.titularPhone) ? {
+                                    phones: item.titularPhone && item.titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(item.titularPhone) ? {
                                         create: {
                                             number: item.titularPhone ? String(item.titularPhone) : ""
                                         }
@@ -151,7 +273,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     },
                     loantype: {
                         connect: {
-                            id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
+                            id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
                         }
                     },
                     lead: {
@@ -166,7 +288,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     snapshotLeadId: specificLeadId,
                     snapshotLeadAssignedAt: snapshotData.leadAssignedAt,
                     payments: {
-                        create: groupedPayments[item.id].map(payment => {
+                            create: paymentsForLoan.map(payment => {
+
                             const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
                             
                             const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
@@ -201,7 +324,6 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 }
                             }
                         })
-
                     },
                     signDate: item.givedDate,
                     amountGived: item.givedAmount.toString(),
@@ -225,22 +347,35 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             });
         });
         const cleanedData = transactionPromises.filter(item => item !== undefined);
+        
         if (cleanedData.length > 0) {
-            await prisma.$transaction(cleanedData);
+            try {
+                await prisma.$transaction(cleanedData);
+            } catch (error) {
+                console.log('error saving loans 244', error);
+            }
         }
     };
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
     const loansFromDb = await prisma.loan.findMany({
         include: {
+            borrower: {
+                include: {
+                    personalData: true,
+                }
+            },
             payments: {
                 include: {
                     transactions: true,
+                    
                 }
             },
             previousLoan: true
         }
     });
+    /* console.log('PRESTAMOS EN LA BASE DE DATOS', loansFromDb.length);
+    console.log('PRESTAMOS EN LA BASE DE DATOS', loansFromDb[0]); */
     const loanIdsMap: {
         [key: string]: {
             id: string,
@@ -414,9 +549,9 @@ export const seedLoans = async (cashAccountId: string, bankAccountId: string, sn
     leadId: string;
     leadName: string;
     leadAssignedAt: Date;
-}, leadMapping?: { [oldId: string]: string }) => {
-    const loanData = extractLoanData(snapshotData.routeName);
-    const payments = extractPaymentData();
+}, excelFileName: string, leadMapping?: { [oldId: string]: string }) => {
+    const loanData = extractLoanData(snapshotData.routeName, excelFileName);
+    const payments = extractPaymentData(excelFileName);
     if (cashAccountId) {
         await saveDataToDB(loanData, cashAccountId, bankAccountId, payments, snapshotData, leadMapping);
         console.log('Loans seeded');

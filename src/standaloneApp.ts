@@ -90,9 +90,9 @@ async function getRouteSnapshotData(routeId: string) {
 }
 
 // Función para crear mapeo de oldId a realId usando el Excel
-async function createLeadMapping(routeId: string) {
+async function createLeadMapping(routeId: string, excelFileName: string, routeName: string) {
     // Extraer datos del Excel
-    const leadsData = extractLeadsData();
+    const leadsData = extractLeadsData(excelFileName, routeName);
     console.log(`📊 Total de leads extraídos del Excel: ${leadsData.length}`);
     console.log(`📋 Primeros 5 leads del Excel:`, leadsData.slice(0, 5).map(l => ({ oldId: l.oldId, nombre: l.nombre, apellidos: l.apellidos })));
     
@@ -140,7 +140,16 @@ async function main() {
             return;
         }
 
+        // Preguntar al usuario cuál es el nombre del archivo Excel
+        const excelFileName = await askQuestion('¿Cuál es el nombre del archivo Excel? (ej: ruta2.xlsm): ');
+        
+        if (!excelFileName.trim()) {
+            console.error('❌ El nombre del archivo Excel no puede estar vacío');
+            return;
+        }
+
         console.log(`🚀 Iniciando proceso para la ruta: ${routeName}`);
+        console.log(`📊 Usando archivo Excel: ${excelFileName}`);
 
         //TODO: handle the bak deposits
         await cleanUpDb();
@@ -178,14 +187,14 @@ async function main() {
             // Obtener los datos de snapshot de la ruta
             const snapshotData = await getRouteSnapshotData(routeWithCashAccount.id);
 
-            await seedLeads(routeWithCashAccount.id, routeName);
+            await seedLeads(routeWithCashAccount.id, routeName, excelFileName);
             
             // Crear mapeo de leads usando el Excel
-            const leadMapping = await createLeadMapping(routeWithCashAccount.id);
+            const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
             
-            await seedLoans(cashAccountId, bankAccountId, snapshotData, leadMapping);
-            await seedExpenses(cashAccountId, bankAccountId, snapshotData, leadMapping);
-            await seedNomina(bankAccountId, snapshotData, leadMapping);
+            await seedExpenses(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
+            await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
+            await seedNomina(bankAccountId, snapshotData, excelFileName, leadMapping);
             //await seedPayments(route2.id);
             //TODO: save comision and earned amount on payments
             console.log('✅ Datos guardados en la base de datos');

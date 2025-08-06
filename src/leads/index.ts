@@ -23,8 +23,8 @@ interface ExcelLead {
     ruta: string;
 }
 
-export const extractLeadsData = () => {
-    const excelFilePath = './ruta2.xlsm';
+export const extractLeadsData = (excelFileName: string, routeName: string) => {
+    const excelFilePath = excelFileName;
     const tabName = 'LIDERES';
 
     console.log(`📁 Leyendo archivo: ${excelFilePath}`);
@@ -64,7 +64,7 @@ export const extractLeadsData = () => {
            
            // Solo agregar si el líder está activo (columna 16 = "SI")
            console.log(`🔍 Fila ${i}: activo = "${row[17]}" ruta = "${row[21]}"`);
-           if (row[17] === 'SI' && row[21] === 'RUTA1') {
+           if (row[17] === 'SI' && row[21] === routeName) {
                leadsData.push({
                    oldId: String(row[0]),
                    nombre: row[1] || '', // NOMBRE
@@ -88,7 +88,6 @@ export const extractLeadsData = () => {
                console.log(`✅ Agregado líder: ${row[1]} ${row[2]}`);
            }
        }
-       console.log('leadsData-----', leadsData);
 
     return leadsData;
 };
@@ -165,10 +164,10 @@ async function getOrCreateLocation(estado: string, municipio: string, localidad:
     return location;
 }
 
-export const seedLeads = async (routeId: string, routeName: string) => {
+export const seedLeads = async (routeId: string, routeName: string, excelFileName: string) => {
     console.log(`🔍 Extrayendo líderes del Excel para la ruta: ${routeName}`);
     
-    const leadsData = extractLeadsData();
+    const leadsData = extractLeadsData(excelFileName, routeName);
     
     console.log(`📊 Total de líderes extraídos del Excel: ${leadsData.length}`);
     

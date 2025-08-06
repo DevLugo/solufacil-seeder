@@ -14,8 +14,8 @@ const expensesColumnsRelationship: ExcelExpensesRow = {
     'M': 'description',
 };
 
-const extractExpensesData = () => {
-    const excelFilePath = './ruta2.xlsm';
+const extractExpensesData = (excelFileName: string) => {
+    const excelFilePath = excelFileName;
     const tabName = 'GASTOS';
 
     // Leer el archivo Excel
@@ -117,8 +117,8 @@ export const seedExpenses = async (accountId: string, bankAccountId: string, sna
     leadId: string;
     leadName: string;
     leadAssignedAt: Date;
-}, leadMapping?: { [oldId: string]: string }) => {
-    const loanData = extractExpensesData();
+}, excelFileName: string, leadMapping?: { [oldId: string]: string }) => {
+    const loanData = extractExpensesData(excelFileName);
     
     if(accountId){
         await saveExpensesOnDB(loanData, accountId, bankAccountId, snapshotData, leadMapping);

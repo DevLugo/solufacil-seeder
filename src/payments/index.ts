@@ -14,8 +14,8 @@ const excelColumnsRelationship: ExcelPaymentRelationship = {
     'F': 'description',
 };
 
-export const extractPaymentData = () => {
-    const excelFilePath = './ruta2.xlsm';
+export const extractPaymentData = (excelFileName: string) => {
+    const excelFilePath = excelFileName;
     const tabName = 'ABONOS';
 
     // Leer el archivo Excel

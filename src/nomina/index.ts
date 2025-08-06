@@ -6,13 +6,13 @@ import { ExcelExpensesRow, Expense } from "../expenses/types";
 const xlsx = require('xlsx');
 
 const expensesColumnsRelationship: ExcelExpensesRow = {
-    'B': 'fullName',
-    'C': 'date',
-    'D': 'amount',
+    'A': 'fullName',
+    'B': 'date',
+    'C': 'amount',
 };
 
-const extractNominaData = () => {
-    const excelFilePath = './ruta2.xlsm';
+const extractNominaData = (excelFileName: string) => {
+    const excelFilePath = excelFileName;
     const tabName = 'NOMINA';
 
     // Leer el archivo Excel
@@ -26,7 +26,7 @@ const extractNominaData = () => {
     
 
 
-    let loansData: Expense[] = data.slice(1).map((row: ExcelRow) => {
+    let expensesData: Expense[] = data.slice(1).map((row: ExcelRow) => {
         const obj: Partial<Expense> = {};
         for (const [col, key] of Object.entries(expensesColumnsRelationship)) {
             const colIndex = xlsx.utils.decode_col(col);
@@ -39,13 +39,27 @@ const extractNominaData = () => {
         }
         return obj as Expense;
     });
-    return loansData;
+    return expensesData;
 };
 
-const saveExpensesOnDB = async (data: Expense[], bankAccountId: string) => {
+const saveExpensesOnDB = async (data: Expense[], bankAccountId: string, snapshotData: {
+    routeId: string;
+    routeName: string;
+    locationId: string;
+    locationName: string;
+    leadId: string;
+    leadName: string;
+    leadAssignedAt: Date;
+}, leadMapping?: { [oldId: string]: string }) => {
     const batches = chunkArray(data, 1000);
     
-    const employeeIdsMap = await getEmployeeIdsMap();
+    // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
+    let employeeIdsMap: { [key: string]: string } = {};
+    if (leadMapping) {
+        employeeIdsMap = leadMapping;
+    } else {
+        employeeIdsMap = await getEmployeeIdsMap();
+    }
     
     for (const batch of batches) {
         const transactionPromises = batch.map(item => {
@@ -68,6 +82,7 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string) => {
                     leadId: item.leadId ? employeeIdsMap[item.leadId] : undefined,
                     type: 'EXPENSE',
                     expenseSource: 'NOMINA_SALARY',
+                    // snapshotLeadId no existe en Transaction, se omite
                 }
             })});
         const cleanedData = transactionPromises.filter(e => e !== undefined);
@@ -76,11 +91,19 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string) => {
     }
 };
 
-export const seedNomina = async (bankAccountId: string) => {
-    const loanData = extractNominaData();
+export const seedNomina = async (bankAccountId: string, snapshotData: {
+    routeId: string;
+    routeName: string;
+    locationId: string;
+    locationName: string;
+    leadId: string;
+    leadName: string;
+    leadAssignedAt: Date;
+}, excelFileName: string, leadMapping?: { [oldId: string]: string }) => {
+    const loanData = extractNominaData(excelFileName);
     
     if(bankAccountId){
-        await saveExpensesOnDB(loanData, bankAccountId);
+        await saveExpensesOnDB(loanData, bankAccountId, snapshotData, leadMapping);
         console.log('Expenses seeded');
     }else{
         console.log('No se encontro la cuenta principal');
