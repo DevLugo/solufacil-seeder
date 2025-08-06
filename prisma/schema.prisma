@@ -12,11 +12,13 @@ generator client {
 }
 
 model User {
-  id        String    @id @default(cuid())
-  name      String    @default("")
-  email     String    @unique @default("")
-  password  String?
-  createdAt DateTime? @default(now())
+  id                 String     @id @default(cuid())
+  name               String     @default("")
+  email              String     @unique @default("")
+  password           String?
+  role               String?    @default("NORMAL")
+  createdAt          DateTime?  @default(now())
+  from_AuditLog_user AuditLog[] @relation("AuditLog_user")
 }
 
 model Employee {
@@ -151,6 +153,8 @@ model Loan {
   transactions           Transaction[]       @relation("Transaction_loan")
   lead                   Employee?           @relation("Loan_lead", fields: [leadId], references: [id])
   leadId                 String?             @map("lead")
+  snapshotLeadId         String?
+  snapshotLeadAssignedAt DateTime?
   borrower               Borrower?           @relation("Loan_borrower", fields: [borrowerId], references: [id])
   borrowerId             String?             @map("borrower")
   previousLoan           Loan?               @relation("Loan_previousLoan", fields: [previousLoanId], references: [id])
@@ -161,6 +165,8 @@ model Loan {
   updatedAt              DateTime?
   createdAt              DateTime?           @default(now())
   status                 String?
+  snapshotRouteId        String              @default("")
+  snapshotRouteName      String              @default("")
   from_Loan_previousLoan Loan[]              @relation("Loan_previousLoan")
 
   @@index([loantypeId])
@@ -200,6 +206,7 @@ model Transaction {
   description          String       @default("")
   lead                 Employee?    @relation("Transaction_lead", fields: [leadId], references: [id])
   leadId               String?      @map("lead")
+  snapshotLeadId       String       @default("")
   sourceAccount        Account?     @relation("Transaction_sourceAccount", fields: [sourceAccountId], references: [id])
   sourceAccountId      String?      @map("sourceAccount")
   destinationAccount   Account?     @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])
@@ -282,4 +289,31 @@ model Account {
   createdAt            DateTime?     @default(now())
 
   @@index([routeId])
+}
+
+model AuditLog {
+  id             String    @id @default(cuid())
+  operation      String?
+  modelName      String    @default("")
+  recordId       String    @default("")
+  userName       String    @default("")
+  userEmail      String    @default("")
+  userRole       String    @default("")
+  sessionId      String    @default("")
+  ipAddress      String    @default("")
+  userAgent      String    @default("")
+  previousValues Json?
+  newValues      Json?
+  changedFields  Json?
+  description    String    @default("")
+  metadata       Json?
+  createdAt      DateTime? @default(now())
+  user           User?     @relation("AuditLog_user", fields: [userId], references: [id])
+  userId         String?   @map("user")
+
+  @@index([operation])
+  @@index([modelName])
+  @@index([recordId])
+  @@index([createdAt])
+  @@index([userId])
 }

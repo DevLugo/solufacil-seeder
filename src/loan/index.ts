@@ -27,42 +27,58 @@ const excelColumnsRelationship: ExcelLoanRelationship = {
     'AP': 'badDebtDate',
 };
 
-const extractLoanData = () => {
-    const excelFilePath = './ruta2.xlsm';
-    const tabName = 'CREDITOS_OTORGADOS';
-
-    // Leer el archivo Excel
-    const workbook = xlsx.readFile(excelFilePath);
-
-    // Obtener la hoja especificada
-    const sheetLoans = workbook.Sheets[tabName];
-
-    // Convertir la hoja a formato JSON
-    const data = xlsx.utils.sheet_to_json(sheetLoans, { header: 1 });
-
-
-
-    let loansData: Loan[] = data.slice(1).map((row: ExcelRow) => {
-        const obj: Partial<Loan> = {};
-        for (const [col, key] of Object.entries(excelColumnsRelationship)) {
-            const colIndex = xlsx.utils.decode_col(col);
-            let value = row[colIndex];
-            // Convertir fechas si es necesario
-            if (key === 'givedDate' || key === 'finishedDate' || key === 'badDebtDate') {
-                value = convertExcelDate(value);
-            }
-            obj[key] = value;
+const extractLoanData = (routeName: string) => {
+    const workbook = xlsx.readFile('ruta2.xlsm');
+    const sheetName = 'Prestamos';
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+    
+    const loansData = data.slice(1).map((row: any) => {
+        const obj = {
+            id: row[0],
+            fullName: row[1],
+            givedDate: row[2],
+            status: row[3],
+            givedAmount: row[4],
+            requestedAmount: row[5],
+            noWeeks: row[6],
+            interestRate: row[7],
+            finished: row[8],
+            finishedDate: row[9],
+            leadId: row[10],
+            previousLoanId: row[11],
+            weeklyPaymentAmount: row[12],
+            amountToPay: row[13],
+            avalName: row[14],
+            avalPhone: row[15],
+            titularPhone: row[16],
+            badDebtDate: row[17]
         }
         return obj as Loan;
     });
-    return loansData;
+    
+    // Filtrar solo los loans que tengan el routeName en la columna AQ
+    const filteredLoans = loansData.filter((loan: Loan) => {
+        const routeColumnIndex = xlsx.utils.decode_col('AQ'); // Columna AQ
+        const rowIndex = data.findIndex((row: any) => row[0] === loan.id) + 1; // +1 porque empezamos desde slice(1)
+        const routeValue = data[rowIndex]?.[routeColumnIndex];
+        return routeValue === routeName;
+    });
+    
+    return filteredLoans;
 };
 
-const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: string, payments: Payments[]) => {
+const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: string, payments: Payments[], snapshotData: {
+    routeId: string;
+    routeName: string;
+    locationId: string;
+    locationName: string;
+    leadId: string;
+    leadName: string;
+    leadAssignedAt: Date;
+}, leadMapping?: { [oldId: string]: string }) => {
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
-    console.log('renovatedLoans', renovatedLoans.length);
-    console.log('notRenovatedLoans', notRenovatedLoans.length);
 
     //Create the loanTypes
     const fourteenWeeksId = await prisma.loantype.create({
@@ -85,20 +101,38 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
     const groupedPayments = groupPaymentsByOldLoanId(payments);
 
-    const employeeIdsMap = await getEmployeeIdsMap();
-    if (!employeeIdsMap) {
-/*         console.log('NO EMPLOYEE IDS MAP'); */
+    // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
+    let employeeIdsMap: { [key: string]: string } = {};
+    if (leadMapping) {
+        employeeIdsMap = leadMapping;
+    } else {
+        employeeIdsMap = await getEmployeeIdsMap();
+    }
+    if (!employeeIdsMap || Object.keys(employeeIdsMap).length === 0) {
+        console.log('⚠️ No hay mapeo de empleados disponible');
         return;
     }
-    // Dividir los datos en lotes de 100 elementos600
+    // Dividir los datos en lotes
     const batches = chunkArray(notRenovatedLoans, 1000);
-    /* console.log('batches', batches.length); */
+    
+    let loansWithoutLead = 0;
+    let loansProcessed = 0;
     for (const batch of batches) {
+        let processedLoans = 0;
         const transactionPromises = batch.map(item => {
             if (!groupedPayments[item.id]) {
-                console.log('No payments for loan', item.id);
                 return;
             }
+            
+            // Obtener el ID del lead específico para este préstamo
+            const specificLeadId = employeeIdsMap[item.leadId.toString()];
+            if(!specificLeadId){
+                console.log(`❌ No lead id found for loan ${item.id}, leadId: ${item.leadId}`);
+                loansWithoutLead++;
+                return;
+            }
+            processedLoans++;
+            
             return prisma.loan.create({
                 data: {
                     borrower: {
@@ -122,11 +156,15 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     },
                     lead: {
                         connect: {
-                            id: employeeIdsMap[item.leadId],
+                            id: specificLeadId,
                         }
                     },
                     oldId: item.id.toString(),
                     badDebtDate: item.badDebtDate,
+                    snapshotRouteId: snapshotData.routeId,
+                    snapshotRouteName: snapshotData.routeName,
+                    snapshotLeadId: specificLeadId,
+                    snapshotLeadAssignedAt: snapshotData.leadAssignedAt,
                     payments: {
                         create: groupedPayments[item.id].map(payment => {
                             const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
@@ -137,16 +175,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
                             
                             if(["1873"].includes(item.id.toString())){
-
-                                /* console.log('================INICIANDO=================', item.id);
-                                console.log("previousLoan", item.previousLoanId);
-                                console.log("RATE", rate);
-                                console.log('PROFIT BASE', baseProfit);
-                                console.log('Payment PROFIT', profitAmount);
-                                
-                                console.log("PAYMENT AMOUNT", payment.amount);
-                                console.log("payment  capital", payment.amount - profitAmount);
-                                console.log('====FINALIZADO===', item.requestedAmount); */
+                                // Logs comentados removidos
                             }
 
                             return {
@@ -166,7 +195,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                         destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
                                         type: 'INCOME',
                                         incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
-                                        
+                                        // Agregar solo el campo de snapshot que existe en Transaction
+                                        snapshotLeadId: specificLeadId, // Usar el ID del lead específico
                                     }
                                 }
                             }
@@ -187,13 +217,17 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             sourceAccountId: cashAccountId,
                             type: 'EXPENSE',
                             expenseSource: 'LOAN_GRANTED',
+                            // Agregar solo el campo de snapshot que existe en Transaction
+                            /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
                         }]
                     }
                 }
             });
         });
-        /* console.log('batch', batch.length); */
-        await prisma.$transaction(transactionPromises.filter(item => item !== undefined));
+        const cleanedData = transactionPromises.filter(item => item !== undefined);
+        if (cleanedData.length > 0) {
+            await prisma.$transaction(cleanedData);
+        }
     };
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
@@ -227,12 +261,10 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         };
     });
     
-    console.log("=====================renovatedLoans insert =====================");
     for (const item of renovatedLoans) {
 
         const existPreviousLoan = item.previousLoanId && loanIdsMap[item.previousLoanId];
         if (!item.previousLoanId) {
-            /* console.log('====NO PREVIOUS LOAN ID======', item); */
             continue;
         }
         const previousLoan = await prisma.loan.findUnique({
@@ -264,23 +296,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         const profitAmount = baseProfit + Number(profitPendingFromPreviousLoan);
         //if(["1873", "2486","3292", "4196" ,"4977", "5401"].includes(item.id.toString())){
         if(["1338"].includes(item.id.toString())){
-
-            /* console.log('================INICIANDO=================', item.id);
-            console.log("previousLoan", item.previousLoanId);
-            
-            console.log('====GANANCIA PAGADA DEL PRESTAMO PREVIO', payedProfitFromPreviousLoan);
-            console.log('GANANCIA DE RENOVACION:', profitPendingFromPreviousLoan);
-            console.log('PROFIT BASE', baseProfit);
-            console.log('TOTAL PROFIT', profitAmount);
-            console.log('====FINALIZADO===', item.requestedAmount); */
+            // Logs comentados removidos
         }
-        /* if(groupedPayments[item.id]) {
-            console.log("=====================INSERTING =====================");
-            console.log("=====================INSERTING =====================");
-            console.log("=====================INSERTING =====================");
-            console.log("=====================INSERTING =====================");
-            console.log("===================== ====================="); */
         
+        // Obtener el ID del lead específico para este préstamo renovado
+        const specificLeadId = employeeIdsMap[item.leadId.toString()];
+        if(!specificLeadId){
+            console.log('No lead id found for loan', item);
+            loansWithoutLead++;
+            return;
+        }
         await prisma.loan.create({
             data: {
                 oldId: item.id.toString(),
@@ -295,7 +320,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 },
                 lead: {
                     connect: {
-                        id: employeeIdsMap[item.leadId],
+                        id: specificLeadId,
                     }
                 },
                 avalName: item.avalName,
@@ -313,6 +338,11 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 } : undefined,
                 //TODO: calculate the renovation profit amount
                 profitAmount: profitAmount.toString(),
+                // Agregar solo los campos de snapshot que existen en Loan
+                snapshotRouteId: snapshotData.routeId,
+                snapshotRouteName: snapshotData.routeName,
+                snapshotLeadId: specificLeadId, // Usar el ID del lead específico
+                snapshotLeadAssignedAt: snapshotData.leadAssignedAt,
                 payments: groupedPayments[item.id] ? {
                     create: groupedPayments[item.id].map(payment => {
                         const baseProfit = Number(item.requestedAmount) * rate;
@@ -322,12 +352,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         
 
                         if(["3292"].includes(item.id.toString())){
-                            /* console.log('================INICIANDO=================', item.id);
-                            console.log("previousLoan", item.previousLoanId);
-                            console.log("profitPendingFromPreviousLoan", profitPendingFromPreviousLoan);
-                            console.log('====loanTotalProfit', loanTotalProfit);
-                            console.log('====totalAmountToPay', totalAmountToPay);
-                            console.log('====profitAmount', profitAmount); */
+                            // Logs comentados removidos
                         }
                         return {
                             oldLoanId: String(item.id),
@@ -347,7 +372,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                     incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT': 'CASH_LOAN_PAYMENT',
                                     profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
                                     returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
-                                    
+                                    // Agregar solo el campo de snapshot que existe en Transaction
+                                    snapshotLeadId: specificLeadId, // Usar el ID del lead específico
                                 }
                             }
                         }
@@ -360,14 +386,13 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         sourceAccountId: cashAccountId,
                         type: 'EXPENSE',
                         expenseSource: 'LOAN_GRANTED',
+                        // Agregar solo el campo de snapshot que existe en Transaction
+                        /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
                     }
                 }
             },
         });
-        /* } */
     };
-    console.log("=====================");
-    console.log("=====================");
 
 
     const totalGivedAmount = await prisma.loan.aggregate({
@@ -375,26 +400,25 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             amountGived: true,
         }
     });
-    console.log('Total gived amount', totalGivedAmount);
-
 
     if (totalGivedAmount) {
-        /* await prisma.transaction.create({
-            data: {
-                amount: totalGivedAmount?._sum.amountGived ? totalGivedAmount._sum.amountGived.toString() : "0",
-                date: new Date(),
-                sourceAccountId: accountId,
-                type: 'LOAN',
-            }
-        }); */
+        // Logs comentados removidos
     }
 };
 
-export const seedLoans = async (cashAccountId: string, bankAccountId: string) => {
-    const loanData = extractLoanData();
+export const seedLoans = async (cashAccountId: string, bankAccountId: string, snapshotData: {
+    routeId: string;
+    routeName: string;
+    locationId: string;
+    locationName: string;
+    leadId: string;
+    leadName: string;
+    leadAssignedAt: Date;
+}, leadMapping?: { [oldId: string]: string }) => {
+    const loanData = extractLoanData(snapshotData.routeName);
     const payments = extractPaymentData();
     if (cashAccountId) {
-        await saveDataToDB(loanData, cashAccountId, bankAccountId, payments);
+        await saveDataToDB(loanData, cashAccountId, bankAccountId, payments, snapshotData, leadMapping);
         console.log('Loans seeded');
     } else {
         console.log('No se encontro la cuenta principal');

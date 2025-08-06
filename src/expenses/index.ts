@@ -45,10 +45,24 @@ const extractExpensesData = () => {
     return loansData;
 };
 
-const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string) => {
+const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string, snapshotData: {
+    routeId: string;
+    routeName: string;
+    locationId: string;
+    locationName: string;
+    leadId: string;
+    leadName: string;
+    leadAssignedAt: Date;
+}, leadMapping?: { [oldId: string]: string }) => {
     const batches = chunkArray(data, 1000);
     
-    const employeeIdsMap = await getEmployeeIdsMap();
+    // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
+    let employeeIdsMap: { [key: string]: string } = {};
+    if (leadMapping) {
+        employeeIdsMap = leadMapping;
+    } else {
+        employeeIdsMap = await getEmployeeIdsMap();
+    }
     
     for (const batch of batches) {
         const transactionPromises = batch.map(item => {
@@ -85,6 +99,8 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                     } : undefined,
                     type: 'EXPENSE',
                     expenseSource: item.description === "VIATICOS"? "VIATIC": item.description === "SUELDO" ? "EXTERNAL_SALARY" : null,
+
+                    // snapshotLeadId no existe en Transaction, se omite
                 }
             })});
         const cleanedData = transactionPromises.filter(e => e !== undefined);
@@ -93,11 +109,19 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     }
 };
 
-export const seedExpenses = async (accountId: string, bankAccountId: string) => {
+export const seedExpenses = async (accountId: string, bankAccountId: string, snapshotData: {
+    routeId: string;
+    routeName: string;
+    locationId: string;
+    locationName: string;
+    leadId: string;
+    leadName: string;
+    leadAssignedAt: Date;
+}, leadMapping?: { [oldId: string]: string }) => {
     const loanData = extractExpensesData();
     
     if(accountId){
-        await saveExpensesOnDB(loanData, accountId, bankAccountId);
+        await saveExpensesOnDB(loanData, accountId, bankAccountId, snapshotData, leadMapping);
         console.log('Expenses seeded');
     }else{
         console.log('No se encontro la cuenta principal');
