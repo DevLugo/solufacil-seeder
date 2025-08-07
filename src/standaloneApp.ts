@@ -25,6 +25,32 @@ function askQuestion(question: string): Promise<string> {
     });
 }
 
+async function getOrCreateTokaAccount() {
+    const existingTokaAccount = await prisma.account.findFirst({
+        where: {
+            type: 'PREPAID_GAS',
+            routeId: null // Cuenta bancaria compartida no está asociada a una ruta específica
+        }
+    });
+
+    if (existingTokaAccount) {
+        console.log('✅ Cuenta de gasolina encontrada y reutilizada:', existingTokaAccount.name);
+        return existingTokaAccount;
+    }
+    
+    const newTokaAccount = await prisma.account.create({
+        data: {
+            name: 'Cuenta de gasolina',
+            type: 'PREPAID_GAS',
+            amount: "0",
+            routeId: null // No asociada a una ruta específica
+        }
+    });
+
+    console.log('✅ Nueva cuenta de gasolina creada:', newTokaAccount.name);
+    return newTokaAccount;
+}
+
 // Función para obtener o crear la cuenta bancaria compartida
 async function getOrCreateSharedBankAccount() {
     // Buscar si ya existe una cuenta bancaria compartida
@@ -157,6 +183,8 @@ async function main() {
 
         // Obtener o crear la cuenta bancaria compartida
         const sharedBankAccount = await getOrCreateSharedBankAccount();
+        const tokaAccount = await getOrCreateTokaAccount();
+
 
         // Crear la ruta y su cuenta de efectivo específica
         const routeWithCashAccount = await prisma.route.create({
@@ -180,7 +208,7 @@ async function main() {
         if (routeWithCashAccount.accounts?.[0]?.id) {
             const cashAccountId = routeWithCashAccount.accounts[0].id;
             const bankAccountId = sharedBankAccount.id;
-
+            const tokaAccountId = tokaAccount.id;
             console.log(`💰 Cuenta de efectivo: ${cashAccountId}`);
             console.log(`🏦 Cuenta bancaria compartida: ${bankAccountId}`);
 
@@ -192,7 +220,7 @@ async function main() {
             // Crear mapeo de leads usando el Excel
             const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
             
-            await seedExpenses(cashAccountId, bankAccountId, snapshotData, excelFileName,routeId, leadMapping);
+            await seedExpenses(cashAccountId, bankAccountId, tokaAccountId, snapshotData, excelFileName,routeId, leadMapping);
             await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
             await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
             //await seedPayments(route2.id);

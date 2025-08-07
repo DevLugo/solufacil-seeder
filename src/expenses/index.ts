@@ -45,7 +45,7 @@ const extractExpensesData = (excelFileName: string) => {
     return loansData;
 };
 
-const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string, snapshotData: {
+const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string, tokaAccountId: string, snapshotData: {
     routeId: string;
     routeName: string;
     locationId: string;
@@ -67,13 +67,17 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     for (const batch of batches) {
         const transactionPromises = batch.map(item => {
             let accountId;
-            if (item.accountType === 'GASTO BANCO' || item.accountType === 'CONNECT') {
+            if(item.accountType === "GASTO BANCO" && item.description === "TOKA"){
+                console.log('====TOKA====', item.description, tokaAccountId);
+                accountId = tokaAccountId;
+            }else if (item.accountType === 'GASTO BANCO') {
                 accountId = bankAccountId;
             } else if (item.accountType === 'GASTO') {
                 accountId = cashAcountId;
             } else {
                 accountId = cashAcountId;
             }
+
             if (!accountId)
                 console.log('NO HAY ACCOUNT ID', item);
 
@@ -81,7 +85,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                 console.log("NO HAY AMOUNT", item);
                 return;
             }
-            console.log('ROUTE ID', routeId);
+            //console.log('ROUTE ID', routeId);
             return prisma.transaction.create({
                 data: {
                     amount: item.amount.toString(),
@@ -104,9 +108,14 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                         }
                     },
                     expenseSource: (() => {
+                        if (item.description === "GASOLINA" || item.description === "TOKA") {
+                            console.log('====GASOLINE22222====', item.description);
+                            return "GASOLINE";
+                        }
                         if (item.accountType === "COMISION") return "LOAN_PAYMENT_COMISSION";
                         if (item.accountType === "GASTO BANCO") return "BANK_EXPENSE";
                         if (item.accountType === "GASTO SOCIO") return "EMPLOYEE_EXPENSE";
+                        
                         /* if (item.description === "VIATICOS") return "VIATIC"; */
                         /* if (item.description === "SUELDO") return "EXTERNAL_SALARY"; */
                         return "GENERAL_EXPENSE";
@@ -121,7 +130,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     }
 };
 
-export const seedExpenses = async (accountId: string, bankAccountId: string, snapshotData: {
+export const seedExpenses = async (accountId: string, bankAccountId: string, tokaAccountId: string, snapshotData: {
     routeId: string;
     routeName: string;
     locationId: string;
@@ -134,7 +143,7 @@ export const seedExpenses = async (accountId: string, bankAccountId: string, sna
     const loanData = extractExpensesData(excelFileName);
     
     if(accountId){
-        await saveExpensesOnDB(loanData, accountId, bankAccountId, snapshotData, routeId, leadMapping);
+        await saveExpensesOnDB(loanData, accountId, bankAccountId, tokaAccountId, snapshotData, routeId, leadMapping);
         console.log('Expenses seeded');
         //PRINT TOTAL EXPENSES AND TOTAL SUM OF EXPENSES FROM DB
         const totalExpenses = await prisma.transaction.count({
