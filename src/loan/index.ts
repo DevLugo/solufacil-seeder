@@ -129,6 +129,19 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         console.log('⚠️ No hay mapeo de empleados disponible');
         return;
     }
+
+    // Función para determinar el status del préstamo
+    const determineLoanStatus = (item: Loan, allLoans: Loan[]) => {
+        // Si tiene fecha de término
+        if (item.finishedDate) {
+            // Verificar si algún otro préstamo usa este ID como previousLoanId
+            return 'FINISHED';
+        }
+        
+        // Si no tiene fecha de término, es activo
+        return 'ACTIVE';
+    };
+
     // Dividir los datos en lotes
     const batches = chunkArray(notRenovatedLoans, 1000);
     console.log('📊 Total de batches:', batches.length);
@@ -187,6 +200,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             }
                         },
                         oldId: item.id.toString(),
+                        status: determineLoanStatus(item, loans),
                         badDebtDate: item.badDebtDate,
                         snapshotRouteId: snapshotData.routeId,
                         snapshotRouteName: snapshotData.routeName,
@@ -284,6 +298,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         }
                     },
                     oldId: item.id.toString(),
+                    status: determineLoanStatus(item, loans),
                     badDebtDate: item.badDebtDate,
                     snapshotRouteId: snapshotData.routeId,
                     snapshotRouteName: snapshotData.routeName,
@@ -534,6 +549,35 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             },
         });
     };
+
+    //OBTEN TODOS LOS LOANS QUE TIENEN UN PREVIOUS LOAN Y MARCA EL PREVIOUS LOAN COMO RENOVATED
+    const loansWithPreviousLoan = await prisma.loan.findMany({
+        where: {
+            previousLoanId: {
+                not: null
+            }
+        },
+        select: {
+            id: true
+        }
+    });
+    console.log('LOANS WITH PREVIOUS LOAN', loansWithPreviousLoan.length);
+    
+    if (loansWithPreviousLoan.length > 0) {
+        // Actualizar en bulk usando updateMany
+        await prisma.loan.updateMany({
+            where: {
+                id: {
+                    in: loansWithPreviousLoan.map(loan => loan.id)
+                }
+            },
+            data: { 
+                status: 'RENOVATED' 
+            }
+        });
+        console.log(`✅ Actualizados ${loansWithPreviousLoan.length} préstamos a status RENOVATED`);
+    }
+    
 
 
     const totalGivedAmount = await prisma.loan.aggregate({
