@@ -221,6 +221,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                             date: payment.paymentDate,
                                             destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
                                             type: 'INCOME',
+                                            routeId: snapshotData.routeId,
                                             incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
                                             // Agregar solo el campo de snapshot que existe en Transaction
                                             snapshotLeadId: specificLeadId, // Usar el ID del lead específico
@@ -244,6 +245,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 sourceAccountId: cashAccountId,
                                 type: 'EXPENSE',
                                 expenseSource: 'LOAN_GRANTED',
+                                routeId: snapshotData.routeId,
                                 // Agregar solo el campo de snapshot que existe en Transaction
                                 /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
                             }]
@@ -320,6 +322,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                         incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
                                         // Agregar solo el campo de snapshot que existe en Transaction
                                         snapshotLeadId: specificLeadId, // Usar el ID del lead específico
+                                        routeId: snapshotData.routeId,
                                     }
                                 }
                             }
@@ -339,6 +342,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             sourceAccountId: cashAccountId,
                             type: 'EXPENSE',
                             expenseSource: 'LOAN_GRANTED',
+                            routeId: snapshotData.routeId,
                             // Agregar solo el campo de snapshot que existe en Transaction
                             /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
                         }]
@@ -509,6 +513,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                     returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
                                     // Agregar solo el campo de snapshot que existe en Transaction
                                     snapshotLeadId: specificLeadId, // Usar el ID del lead específico
+                                    routeId: snapshotData.routeId,
                                 }
                             }
                         }
@@ -521,6 +526,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         sourceAccountId: cashAccountId,
                         type: 'EXPENSE',
                         expenseSource: 'LOAN_GRANTED',
+                        routeId: snapshotData.routeId,
                         // Agregar solo el campo de snapshot que existe en Transaction
                         /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
                     }

@@ -50,7 +50,7 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string, snapshot
     leadId: string;
     leadName: string;
     leadAssignedAt: Date;
-}, leadMapping?: { [oldId: string]: string }) => {
+}, routeId: string, leadMapping?: { [oldId: string]: string }) => {
     const batches = chunkArray(data, 1000);
     
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
@@ -82,6 +82,7 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string, snapshot
                     leadId: item.leadId ? employeeIdsMap[item.leadId] : undefined,
                     type: 'EXPENSE',
                     expenseSource: 'NOMINA_SALARY',
+                    routeId: routeId,
                     // snapshotLeadId no existe en Transaction, se omite
                 }
             })});
@@ -99,12 +100,25 @@ export const seedNomina = async (bankAccountId: string, snapshotData: {
     leadId: string;
     leadName: string;
     leadAssignedAt: Date;
-}, excelFileName: string, leadMapping?: { [oldId: string]: string }) => {
+}, excelFileName: string, routeId: string, leadMapping?: { [oldId: string]: string },) => {
     const loanData = extractNominaData(excelFileName);
-    
+    console.log('NOMINA DATA', loanData.length);
     if(bankAccountId){
-        await saveExpensesOnDB(loanData, bankAccountId, snapshotData, leadMapping);
-        console.log('Expenses seeded');
+        await saveExpensesOnDB(loanData, bankAccountId, snapshotData, routeId, leadMapping);
+        const totalExpenses = await prisma.transaction.count({
+            where: {
+                type: 'EXPENSE',
+            }
+        });
+        console.log('Total NOMINA', totalExpenses);
+
+        const totalSumOfExpenses = await prisma.transaction.aggregate({
+            _sum: {
+                amount: true,
+            }
+        });
+        console.log('Total sum of NOMINA', totalSumOfExpenses);
+        console.log('NOMINA seeded');
     }else{
         console.log('No se encontro la cuenta principal');
     }

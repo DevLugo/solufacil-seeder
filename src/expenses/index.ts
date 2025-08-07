@@ -53,7 +53,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     leadId: string;
     leadName: string;
     leadAssignedAt: Date;
-}, leadMapping?: { [oldId: string]: string }) => {
+}, routeId: string, leadMapping?: { [oldId: string]: string }) => {
     const batches = chunkArray(data, 1000);
     
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
@@ -81,7 +81,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                 console.log("NO HAY AMOUNT", item);
                 return;
             }
-            
+            console.log('ROUTE ID', routeId);
             return prisma.transaction.create({
                 data: {
                     amount: item.amount.toString(),
@@ -98,13 +98,25 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                         }
                     } : undefined,
                     type: 'EXPENSE',
-                    expenseSource: item.description === "VIATICOS"? "VIATIC": item.description === "SUELDO" ? "EXTERNAL_SALARY" : null,
+                    route: {
+                        connect: {
+                            id: routeId,
+                        }
+                    },
+                    expenseSource: (() => {
+                        if (item.accountType === "COMISION") return "LOAN_PAYMENT_COMISSION";
+                        if (item.accountType === "GASTO BANCO") return "BANK_EXPENSE";
+                        if (item.accountType === "GASTO SOCIO") return "EMPLOYEE_EXPENSE";
+                        /* if (item.description === "VIATICOS") return "VIATIC"; */
+                        /* if (item.description === "SUELDO") return "EXTERNAL_SALARY"; */
+                        return "GENERAL_EXPENSE";
+                    })(),
 
                     // snapshotLeadId no existe en Transaction, se omite
                 }
             })});
         const cleanedData = transactionPromises.filter(e => e !== undefined);
-        /* console.log('Saving expenses', cleanedData.length, cleanedData[0]); */
+
         await prisma.$transaction(cleanedData);
     }
 };
@@ -117,12 +129,27 @@ export const seedExpenses = async (accountId: string, bankAccountId: string, sna
     leadId: string;
     leadName: string;
     leadAssignedAt: Date;
-}, excelFileName: string, leadMapping?: { [oldId: string]: string }) => {
+}, excelFileName: string, routeId: string, leadMapping?: { [oldId: string]: string }) => {
+    console.log("SEEDING EXPENSES--------");
     const loanData = extractExpensesData(excelFileName);
     
     if(accountId){
-        await saveExpensesOnDB(loanData, accountId, bankAccountId, snapshotData, leadMapping);
+        await saveExpensesOnDB(loanData, accountId, bankAccountId, snapshotData, routeId, leadMapping);
         console.log('Expenses seeded');
+        //PRINT TOTAL EXPENSES AND TOTAL SUM OF EXPENSES FROM DB
+        const totalExpenses = await prisma.transaction.count({
+            where: {
+                type: 'EXPENSE',
+            }
+        });
+        console.log('Total expenses', totalExpenses);
+
+        const totalSumOfExpenses = await prisma.transaction.aggregate({
+            _sum: {
+                amount: true,
+            }
+        });
+        console.log('Total sum of expenses', totalSumOfExpenses);
     }else{
         console.log('No se encontro la cuenta principal');
     }

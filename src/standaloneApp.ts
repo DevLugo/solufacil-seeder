@@ -176,7 +176,7 @@ async function main() {
         });
 
         console.log(`✅ Ruta "${routeName}" creada con cuenta de efectivo`);
-
+        const routeId = routeWithCashAccount.id;
         if (routeWithCashAccount.accounts?.[0]?.id) {
             const cashAccountId = routeWithCashAccount.accounts[0].id;
             const bankAccountId = sharedBankAccount.id;
@@ -192,9 +192,9 @@ async function main() {
             // Crear mapeo de leads usando el Excel
             const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
             
-            await seedExpenses(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
+            await seedExpenses(cashAccountId, bankAccountId, snapshotData, excelFileName,routeId, leadMapping);
             await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
-            await seedNomina(bankAccountId, snapshotData, excelFileName, leadMapping);
+            await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
             //await seedPayments(route2.id);
             //TODO: save comision and earned amount on payments
             console.log('✅ Datos guardados en la base de datos');
@@ -202,7 +202,7 @@ async function main() {
             const yearResume = await getYearResume(
                 cashAccountId,
                 bankAccountId,
-                2024
+                2025
             );
             
             console.table(yearResume);

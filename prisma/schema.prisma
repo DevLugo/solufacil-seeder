@@ -40,11 +40,12 @@ model Employee {
 }
 
 model Route {
-  id         String     @id @default(cuid())
-  name       String     @default("")
-  employees  Employee[] @relation("Employee_routes")
-  localities Location[] @relation("Location_route")
-  accounts   Account[]  @relation("Account_route")
+  id           String        @id @default(cuid())
+  name         String        @default("")
+  employees    Employee[]    @relation("Employee_routes")
+  localities   Location[]    @relation("Location_route")
+  accounts     Account[]     @relation("Account_route")
+  transactions Transaction[] @relation("Transaction_route")
 }
 
 model Location {
@@ -204,6 +205,8 @@ model Transaction {
   incomeSource         String?
   expenseSource        String?
   description          String       @default("")
+  route                Route?       @relation("Transaction_route", fields: [routeId], references: [id])
+  routeId              String?      @map("route")
   lead                 Employee?    @relation("Transaction_lead", fields: [leadId], references: [id])
   leadId               String?      @map("lead")
   snapshotLeadId       String       @default("")
@@ -220,6 +223,7 @@ model Transaction {
   createdAt            DateTime?    @default(now())
   updatedAt            DateTime?
 
+  @@index([routeId])
   @@index([leadId])
   @@index([sourceAccountId])
   @@index([destinationAccountId])

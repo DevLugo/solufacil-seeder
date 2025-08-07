@@ -70,6 +70,7 @@ export const leads = [
 export const cleanUpDb = async () => {
     await prisma.route.deleteMany({});
     await prisma.loantype.deleteMany({});
+    await prisma.loantype.deleteMany({});
     await prisma.personalData.deleteMany({});
     await prisma.employee.deleteMany({});
     await prisma.borrower.deleteMany({});
