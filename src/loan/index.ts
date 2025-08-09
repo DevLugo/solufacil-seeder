@@ -86,7 +86,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('notRenovatedLoans', notRenovatedLoans.length);
     console.log('renovatedLoans', renovatedLoans.length);
     
-    
+
     //Create the loanTypes
     const fourteenWeeksId = await prisma.loantype.create({
         data: {
@@ -582,7 +582,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         finishedDate: { not: null }
                     },
                     data: {
-                        status: 'RENOVATED'
+                        status: 'FINISHED'
                     }
                 })
             )
@@ -590,7 +590,135 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         console.log(`✅ Actualizados ${previousLoanIds.length} préstamos PREVIOS a status RENOVATED`);
     }
     
+    // Establecer finishedDate del préstamo previo igual al signDate del nuevo préstamo (renovación)
+    {
+        const childrenWithPrevious = await prisma.loan.findMany({
+            where: {
+                snapshotRouteId: snapshotData.routeId,
+                previousLoanId: { not: null }
+            },
+            select: {
+                previousLoanId: true,
+                signDate: true,
+                oldId: true
+            }
+        });
 
+        const prevIds = Array.from(new Set(
+            childrenWithPrevious
+                .map(l => l.previousLoanId as string)
+                .filter(Boolean)
+        ));
+
+        let prevMap = new Map<string, Date | null>();
+        if (prevIds.length > 0) {
+            const prevLoans = await prisma.loan.findMany({
+                where: { id: { in: prevIds } },
+                select: { id: true, finishedDate: true }
+            });
+            prevLoans.forEach(p => prevMap.set(p.id, p.finishedDate ? new Date(p.finishedDate) : null));
+        }
+
+        
+        const updates = childrenWithPrevious
+            .filter(l => Boolean(l.previousLoanId) && Boolean(l.signDate))
+            .map(l => {
+                const prevId = l.previousLoanId as string;
+                const childSign = l.signDate as Date;
+                const prevFinished = prevMap.get(prevId) ?? null;
+                if (!prevFinished) {
+                    if(["7150"].includes(l.oldId as string)){
+                        console.log('====1338===', prevId, childSign);
+                    }
+                    return prisma.loan.update({ where: { id: prevId }, data: { finishedDate: childSign } });
+                }
+                if (isSameWorkWeek(prevFinished, childSign) && prevFinished.getTime() !== childSign.getTime()) {
+                    return prisma.loan.update({ where: { id: prevId }, data: { finishedDate: childSign } });
+                }
+                return null;
+            })
+            .filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
+
+        if (updates.length > 0) {
+            const batches = chunkArray(updates, 200);
+            for (const batch of batches) {
+                await prisma.$transaction(batch);
+            }
+            console.log(`✅ Sincronizados finishedDate de préstamos previos por renovaciones (>=1 semana): ${updates.length}`);
+        }
+    }
+
+    // Corrección: si el último pago es posterior a finishedDate, actualizar finishedDate,
+    // a menos que exista una renovación con signDate a <= 7 días de la finishedDate (en cuyo caso se prioriza el signDate del crédito renovado)
+    {
+        // Traer loans de la ruta con pagos
+        const loansForFix = await prisma.loan.findMany({
+            where: { snapshotRouteId: snapshotData.routeId },
+            select: {
+                id: true,
+                finishedDate: true,
+                payments: { select: { receivedAt: true } },
+                oldId: true
+            }
+        });
+
+        const loanIds = loansForFix.map(l => l.id);
+        // Traer hijos que referencian a estos loans
+        const children = loanIds.length > 0
+            ? await prisma.loan.findMany({
+                where: { previousLoanId: { in: loanIds } },
+                select: { previousLoanId: true, signDate: true, oldId: true }
+            })
+            : [];
+        const prevIdToChildSign = new Map<string, Date>();
+        for (const c of children) {
+            if (!c.previousLoanId || !c.signDate) continue;
+            const curr = prevIdToChildSign.get(c.previousLoanId);
+            const sign = c.signDate as Date;
+            if (!curr || sign < curr) prevIdToChildSign.set(c.previousLoanId, sign);
+        }
+
+        
+        const updates = loansForFix.map(l => {
+            const finished = l.finishedDate ? new Date(l.finishedDate) : null;
+            const lastPayment = l.payments.reduce((max: Date | null, p) => {
+                const d = p.receivedAt as unknown as Date;
+                return !max || d > max ? d : max;
+            }, null);
+
+            if (!finished && !lastPayment) return null;
+
+            const childSign = prevIdToChildSign.get(l.id) ?? null;
+            // Prioridad: si existe childSign y finished y están en la misma semana laboral, usar childSign
+            if (finished && childSign) {
+                if (isSameWorkWeek(finished, childSign) && finished.getTime() !== childSign.getTime()) {
+                    return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: childSign } });
+                }
+            }
+
+            // Si último pago es posterior a finishedDate, corregir a último pago
+            if (lastPayment && finished && lastPayment > finished) {
+                return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: lastPayment } });
+            }
+
+            return null;
+        }).filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
+
+        if (updates.length > 0) {
+            const batches = chunkArray(updates, 200);
+            for (const batch of batches) {
+                await prisma.$transaction(batch);
+            }
+            console.log(`✅ Corregidos finishedDate por desfasaje con pagos/renovación: ${updates.length}`);
+        }
+    }
+
+    await prisma.loan.updateMany({
+        where: {},
+        data: {
+            status: 'ACTIVE'
+        }
+    });
 
     const totalGivedAmount = await prisma.loan.aggregate({
         _sum: {
@@ -621,3 +749,25 @@ export const seedLoans = async (cashAccountId: string, bankAccountId: string, sn
         console.log('No se encontro la cuenta principal');
     }
 }
+
+    // Helper: determina si dos fechas están en la misma semana laboral (lunes-domingo)
+    const isSameWorkWeek = (a: Date, b: Date): boolean => {
+        const startOfWeek = (d: Date) => {
+            const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            const day = date.getDay(); // 0=Dom, 1=Lun, ...
+            const diffToMonday = (day + 6) % 7; // Lunes=0, Domingo=6
+            date.setDate(date.getDate() - diffToMonday);
+            date.setHours(0, 0, 0, 0);
+            return date;
+        };
+        const endOfWeek = (d: Date) => {
+            const start = startOfWeek(d);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            end.setHours(23, 59, 59, 999);
+            return end;
+        };
+        const aStart = startOfWeek(a);
+        const aEnd = endOfWeek(a);
+        return b >= aStart && b <= aEnd;
+    };
