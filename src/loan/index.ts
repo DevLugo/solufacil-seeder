@@ -590,6 +590,37 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         console.log(`✅ Actualizados ${previousLoanIds.length} préstamos PREVIOS a status RENOVATED`);
     }
     
+    // Paso 0: Normalizar finishedDate con la fecha del último pago para todos los préstamos que ya tienen finishedDate
+    {
+        const loansWithFinish = await prisma.loan.findMany({
+            where: {
+                snapshotRouteId: snapshotData.routeId,
+                finishedDate: { not: null }
+            },
+            select: {
+                id: true,
+                payments: { select: { receivedAt: true } }
+            }
+        });
+        const updates = loansWithFinish.map(l => {
+            if (!l.payments || l.payments.length === 0) return null;
+            const lastPayment = l.payments.reduce((max: Date | null, p) => {
+                const d = p.receivedAt as unknown as Date;
+                return !max || d > max ? d : max;
+            }, null);
+            if (!lastPayment) return null;
+            return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: lastPayment } });
+        }).filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
+
+        if (updates.length > 0) {
+            const batches = chunkArray(updates, 200);
+            for (const batch of batches) {
+                await prisma.$transaction(batch);
+            }
+            console.log(`✅ Normalizados finishedDate con último pago: ${updates.length}`);
+        }
+    }
+
     // Establecer finishedDate del préstamo previo igual al signDate del nuevo préstamo (renovación)
     {
         const childrenWithPrevious = await prisma.loan.findMany({
