@@ -257,6 +257,26 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
             }
         });
 
+        // Generar clientCode único para PersonalData
+        if (createdEmployee.personalData?.id) {
+            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            const length = 6;
+            const generate = () => Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+            let attempts = 0;
+            let code = generate();
+            try {
+                while (attempts < 5) {
+                    const existing = await prisma.personalData.findUnique({ where: { clientCode: code } as any });
+                    if (!existing) break;
+                    code = generate();
+                    attempts++;
+                }
+                await prisma.personalData.update({ where: { id: createdEmployee.personalData.id }, data: { clientCode: code } as any });
+            } catch (e) {
+                console.error('Error generating clientCode:', e);
+            }
+        }
+
         console.log(`✅ Líder creado: ${createdEmployee.personalData?.fullName} con ${createdEmployee.personalData?.addresses?.length || 0} direcciones`);
         console.log(`📍 Dirección: ${lead.calle} ${lead.numero}, ${lead.localidad}, ${lead.municipio}, ${lead.estado}`);
     };
