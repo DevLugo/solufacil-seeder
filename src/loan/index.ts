@@ -760,6 +760,47 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     if (totalGivedAmount) {
         // Logs comentados removidos
     }
+
+    // Agrega el proceso aki: llenar campos denormalizados (deuda, pagos esperados, total pagado, pendiente)
+    {
+        const loansForDenorm = await prisma.loan.findMany({
+            where: { snapshotRouteId: snapshotData.routeId },
+            select: {
+                id: true,
+                requestedAmount: true,
+                loantype: { select: { rate: true, weekDuration: true } },
+                payments: { select: { amount: true } },
+            }
+        });
+
+        const denormUpdates = loansForDenorm.map(loan => {
+            const principal = Number(loan.requestedAmount ?? 0);
+            const rate = Number(loan.loantype?.rate ?? 0);
+            const weeks = Number(loan.loantype?.weekDuration ?? 0) || 1;
+            const totalToPay = principal * (1 + rate);
+            const expectedWeeklyPayment = totalToPay / weeks;
+            const totalPaid = loan.payments.reduce((acc, p) => acc + Number(p.amount ?? 0), 0);
+            const pending = Math.max(totalToPay - totalPaid, 0);
+
+            return prisma.loan.update({
+                where: { id: loan.id },
+            data: {
+                    totalDebtAcquired: totalToPay.toFixed(2),
+                    expectedWeeklyPayment: expectedWeeklyPayment.toFixed(2),
+                    totalPaid: totalPaid.toFixed(2),
+                    pendingAmountStored: pending.toFixed(2),
+                }
+            });
+        });
+
+        if (denormUpdates.length > 0) {
+            const batches = chunkArray(denormUpdates, 200);
+            for (const batch of batches) {
+                await prisma.$transaction(batch);
+            }
+            console.log(`✅ Denormalizados préstamos: ${denormUpdates.length} (deuda, pago semanal, pagado, pendiente)`);
+        }
+    }
 };
 
 export const seedLoans = async (cashAccountId: string, bankAccountId: string, snapshotData: {

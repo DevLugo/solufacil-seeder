@@ -12,13 +12,14 @@ generator client {
 }
 
 model User {
-  id                 String     @id @default(cuid())
-  name               String     @default("")
-  email              String     @unique @default("")
+  id                 String             @id @default(cuid())
+  name               String             @default("")
+  email              String             @unique @default("")
   password           String?
-  role               String?    @default("NORMAL")
-  createdAt          DateTime?  @default(now())
-  from_AuditLog_user AuditLog[] @relation("AuditLog_user")
+  role               String?            @default("NORMAL")
+  portfolioCleanups  PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
+  createdAt          DateTime?          @default(now())
+  from_AuditLog_user AuditLog[]         @relation("AuditLog_user")
 }
 
 model Employee {
@@ -40,12 +41,13 @@ model Employee {
 }
 
 model Route {
-  id           String        @id @default(cuid())
-  name         String        @default("")
-  employees    Employee[]    @relation("Employee_routes")
-  localities   Location[]    @relation("Location_route")
-  accounts     Account[]     @relation("Account_route")
-  transactions Transaction[] @relation("Transaction_route")
+  id                String             @id @default(cuid())
+  name              String             @default("")
+  employees         Employee[]         @relation("Employee_routes")
+  localities        Location[]         @relation("Location_route")
+  accounts          Account[]          @relation("Account_route")
+  transactions      Transaction[]      @relation("Transaction_route")
+  portfolioCleanups PortfolioCleanup[] @relation("PortfolioCleanup_route")
 }
 
 model Location {
@@ -161,6 +163,10 @@ model Loan {
   previousLoan           Loan?               @relation("Loan_previousLoan", fields: [previousLoanId], references: [id])
   previousLoanId         String?             @map("previousLoan")
   commissionPayment      CommissionPayment[] @relation("CommissionPayment_loan")
+  totalDebtAcquired      Decimal?            @postgresql.Decimal(12, 2)
+  expectedWeeklyPayment  Decimal?            @postgresql.Decimal(12, 2)
+  totalPaid              Decimal?            @postgresql.Decimal(12, 2)
+  pendingAmountStored    Decimal?            @postgresql.Decimal(12, 2)
   comissionAmount        Decimal?            @postgresql.Decimal(18, 4)
   finishedDate           DateTime?
   updatedAt              DateTime?
@@ -168,6 +174,8 @@ model Loan {
   status                 String?
   snapshotRouteId        String              @default("")
   snapshotRouteName      String              @default("")
+  excludedByCleanup      PortfolioCleanup?   @relation("Loan_excludedByCleanup", fields: [excludedByCleanupId], references: [id])
+  excludedByCleanupId    String?             @map("excludedByCleanup")
   from_Loan_previousLoan Loan[]              @relation("Loan_previousLoan")
 
   @@index([loantypeId])
@@ -175,6 +183,7 @@ model Loan {
   @@index([leadId])
   @@index([borrowerId])
   @@index([previousLoanId])
+  @@index([excludedByCleanupId])
 }
 
 model LoanPayment {
@@ -320,4 +329,25 @@ model AuditLog {
   @@index([recordId])
   @@index([createdAt])
   @@index([userId])
+}
+
+model PortfolioCleanup {
+  id                 String    @id @default(cuid())
+  name               String    @default("")
+  description        String    @default("")
+  cleanupDate        DateTime
+  fromDate           DateTime?
+  toDate             DateTime?
+  excludedLoansCount Int?
+  excludedAmount     Decimal?  @postgresql.Decimal(18, 4)
+  route              Route?    @relation("PortfolioCleanup_route", fields: [routeId], references: [id])
+  routeId            String?   @map("route")
+  executedBy         User?     @relation("PortfolioCleanup_executedBy", fields: [executedById], references: [id])
+  executedById       String?   @map("executedBy")
+  loansExcluded      Loan[]    @relation("Loan_excludedByCleanup")
+  createdAt          DateTime? @default(now())
+  updatedAt          DateTime?
+
+  @@index([routeId])
+  @@index([executedById])
 }
