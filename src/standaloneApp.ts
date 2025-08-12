@@ -25,6 +25,32 @@ function askQuestion(question: string): Promise<string> {
     });
 }
 
+async function getOrCreateConnectAccount() {
+    const existingConnectAccount = await prisma.account.findFirst({
+        where: {
+            type: 'TRAVEL_EXPENSES',
+            routeId: null // Cuenta bancaria compartida no está asociada a una ruta específica
+        }
+    });
+
+    if (existingConnectAccount) {
+        console.log('✅ Cuenta de gastos de viaje encontrada y reutilizada:', existingConnectAccount.name);
+        return existingConnectAccount;
+    }
+    
+    const newConnectAccount = await prisma.account.create({
+        data: {
+            name: 'Cuenta de gastos de viaje',
+            type: 'TRAVEL_EXPENSES',
+            amount: "0",
+            routeId: null // No asociada a una ruta específica
+        }
+    });
+
+    console.log('✅ Nueva cuenta de gastos de viaje creada:', newConnectAccount.name);
+    return newConnectAccount;
+}
+
 async function getOrCreateTokaAccount() {
     const existingTokaAccount = await prisma.account.findFirst({
         where: {
@@ -184,6 +210,9 @@ async function main() {
         // Obtener o crear la cuenta bancaria compartida
         const sharedBankAccount = await getOrCreateSharedBankAccount();
         const tokaAccount = await getOrCreateTokaAccount();
+        const connectAccount = await getOrCreateConnectAccount();
+        console.log('====CONNECT ACCOUNT====', connectAccount);
+        console.log('====TOKA ACCOUNT====', tokaAccount);
 
 
         // Crear la ruta y su cuenta de efectivo específica
@@ -209,6 +238,8 @@ async function main() {
             const cashAccountId = routeWithCashAccount.accounts[0].id;
             const bankAccountId = sharedBankAccount.id;
             const tokaAccountId = tokaAccount.id;
+            const connectAccountId = connectAccount.id;
+
             console.log(`💰 Cuenta de efectivo: ${cashAccountId}`);
             console.log(`🏦 Cuenta bancaria compartida: ${bankAccountId}`);
 
@@ -220,7 +251,7 @@ async function main() {
             // Crear mapeo de leads usando el Excel
             const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
             
-            await seedExpenses(cashAccountId, bankAccountId, tokaAccountId, snapshotData, excelFileName,routeId, leadMapping);
+            await seedExpenses(cashAccountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, excelFileName,routeId, leadMapping);
             await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
             await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
             //await seedPayments(route2.id);

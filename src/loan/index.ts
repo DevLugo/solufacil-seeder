@@ -801,6 +801,33 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             console.log(`✅ Denormalizados préstamos: ${denormUpdates.length} (deuda, pago semanal, pagado, pendiente)`);
         }
     }
+
+    // Actualizar balances de cuentas (amount = ingresos - egresos) para la ruta actual
+    {
+        const accounts = await prisma.account.findMany({
+            where: { routeId: snapshotData.routeId },
+            select: { id: true }
+        });
+        if (accounts.length > 0) {
+            const updates = await Promise.all(accounts.map(async acc => {
+                const incomes = await prisma.transaction.aggregate({
+                    _sum: { amount: true },
+                    where: { destinationAccountId: acc.id, type: 'INCOME' }
+                });
+                const expenses = await prisma.transaction.aggregate({
+                    _sum: { amount: true },
+                    where: { sourceAccountId: acc.id, type: 'EXPENSE' }
+                });
+                const incomeSum = Number(incomes._sum.amount ?? 0);
+                const expenseSum = Number(expenses._sum.amount ?? 0);
+                const balance = incomeSum - expenseSum;
+                return prisma.account.update({ where: { id: acc.id }, data: { amount: balance.toFixed(4) } });
+            }));
+            if (updates.length) {
+                console.log(`✅ Balances de cuentas actualizados: ${updates.length}`);
+            }
+        }
+    }
 };
 
 export const seedLoans = async (cashAccountId: string, bankAccountId: string, snapshotData: {

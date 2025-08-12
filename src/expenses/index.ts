@@ -45,7 +45,7 @@ const extractExpensesData = (excelFileName: string) => {
     return loansData;
 };
 
-const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string, tokaAccountId: string, snapshotData: {
+const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccountId: string, tokaAccountId: string, connectAccountId: string, snapshotData: {
     routeId: string;
     routeName: string;
     locationId: string;
@@ -55,6 +55,8 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     leadAssignedAt: Date;
 }, routeId: string, leadMapping?: { [oldId: string]: string }) => {
     const batches = chunkArray(data, 1000);
+    console.log('====TOKA ACCOUNT====saveExpensesOnDB', tokaAccountId);
+    console.log('====CONNECT ACCOUNT====saveExpensesOnDB', connectAccountId);
     
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
     let employeeIdsMap: { [key: string]: string } = {};
@@ -70,7 +72,11 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
             if(item.accountType === "GASTO BANCO" && item.description === "TOKA"){
                 console.log('====TOKA====', item.description, tokaAccountId);
                 accountId = tokaAccountId;
-            }else if (item.accountType === 'GASTO BANCO') {
+            }else if(item.accountType === "GASTO BANCO" && item.description === "CONNECT"){
+                console.log('====GASOLINA====', item.description, connectAccountId);
+                accountId = connectAccountId;
+            }
+            else if (item.accountType === 'GASTO BANCO') {
                 accountId = bankAccountId;
             } else if (item.accountType === 'GASTO') {
                 accountId = cashAcountId;
@@ -112,6 +118,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                             console.log('====GASOLINE22222====', item.description);
                             return "GASOLINE";
                         }
+                        if (item.description === "CONNECT") return "TRAVEL_EXPENSES";
                         if (item.accountType === "COMISION") return "LOAN_PAYMENT_COMISSION";
                         if (item.accountType === "GASTO BANCO") return "BANK_EXPENSE";
                         if (item.accountType === "GASTO SOCIO") return "EMPLOYEE_EXPENSE";
@@ -130,7 +137,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     }
 };
 
-export const seedExpenses = async (accountId: string, bankAccountId: string, tokaAccountId: string, snapshotData: {
+export const seedExpenses = async (accountId: string, bankAccountId: string, tokaAccountId: string, connectAccountId: string, snapshotData: {
     routeId: string;
     routeName: string;
     locationId: string;
@@ -143,7 +150,9 @@ export const seedExpenses = async (accountId: string, bankAccountId: string, tok
     const loanData = extractExpensesData(excelFileName);
     
     if(accountId){
-        await saveExpensesOnDB(loanData, accountId, bankAccountId, tokaAccountId, snapshotData, routeId, leadMapping);
+        console.log('====TOKA ACCOUNT====seedExpenses', tokaAccountId);
+        console.log('====CONNECT ACCOUNT====seedExpenses', connectAccountId);
+        await saveExpensesOnDB(loanData, accountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, routeId, leadMapping);
         console.log('Expenses seeded');
         //PRINT TOTAL EXPENSES AND TOTAL SUM OF EXPENSES FROM DB
         const totalExpenses = await prisma.transaction.count({
