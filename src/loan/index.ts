@@ -169,6 +169,15 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 loansWithoutLead++; 
                 return;
             }
+
+            // Verificar que el lead existe en el mapeo
+            if (!specificLeadId) {
+                console.log(`❌ ERROR: Lead ${item.leadId} no tiene mapeo válido para loan ${item.id}`);
+                loansWithoutLead++;
+                return;
+            }
+
+            console.log(`✅ Lead ${specificLeadId} verificado para loan ${item.id}`);
             const paymentsForLoan = groupedPayments[item.id] || [];
             //console.log('item.id', item);
             if(item.id === 7709){
@@ -802,10 +811,9 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }
     }
 
-    // Actualizar balances de cuentas (amount = ingresos - egresos) para la ruta actual
+    // Actualizar balances de cuentas (amount = ingresos - egresos) para TODAS las cuentas
     {
         const accounts = await prisma.account.findMany({
-            where: { routeId: snapshotData.routeId },
             select: { id: true }
         });
         if (accounts.length > 0) {
@@ -824,10 +832,11 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 return prisma.account.update({ where: { id: acc.id }, data: { amount: balance.toFixed(4) } });
             }));
             if (updates.length) {
-                console.log(`✅ Balances de cuentas actualizados: ${updates.length}`);
+                console.log(`✅ Balances de cuentas actualizados (global): ${updates.length}`);
             }
         }
     }
+
 };
 
 export const seedLoans = async (cashAccountId: string, bankAccountId: string, snapshotData: {
