@@ -631,6 +631,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     }
 
     // Establecer finishedDate del préstamo previo igual al signDate del nuevo préstamo (renovación)
+    // Y establecer renewedDate del préstamo previo igual al signDate del nuevo préstamo
     {
         const childrenWithPrevious = await prisma.loan.findMany({
             where: {
@@ -654,7 +655,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         if (prevIds.length > 0) {
             const prevLoans = await prisma.loan.findMany({
                 where: { id: { in: prevIds } },
-                select: { id: true, finishedDate: true }
+                select: { id: true, finishedDate: true, renewedDate: true }
             });
             prevLoans.forEach(p => prevMap.set(p.id, p.finishedDate ? new Date(p.finishedDate) : null));
         }
@@ -666,15 +667,25 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 const prevId = l.previousLoanId as string;
                 const childSign = l.signDate as Date;
                 const prevFinished = prevMap.get(prevId) ?? null;
+                
+                // Actualizar tanto finishedDate como renewedDate
+                const updateData: any = {};
+                
                 if (!prevFinished) {
+                    updateData.finishedDate = childSign;
+                    updateData.renewedDate = childSign;
                     if(["7150"].includes(l.oldId as string)){
                         console.log('====1338===', prevId, childSign);
                     }
-                    return prisma.loan.update({ where: { id: prevId }, data: { finishedDate: childSign } });
+                    return prisma.loan.update({ where: { id: prevId }, data: updateData });
                 }
+                
                 if (isSameWorkWeek(prevFinished, childSign) && prevFinished.getTime() !== childSign.getTime()) {
-                    return prisma.loan.update({ where: { id: prevId }, data: { finishedDate: childSign } });
+                    updateData.finishedDate = childSign;
+                    updateData.renewedDate = childSign;
+                    return prisma.loan.update({ where: { id: prevId }, data: updateData });
                 }
+                
                 return null;
             })
             .filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
@@ -684,7 +695,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             for (const batch of batches) {
                 await prisma.$transaction(batch);
             }
-            console.log(`✅ Sincronizados finishedDate de préstamos previos por renovaciones (>=1 semana): ${updates.length}`);
+            console.log(`✅ Sincronizados finishedDate y renewedDate de préstamos previos por renovaciones (>=1 semana): ${updates.length}`);
         }
     }
 

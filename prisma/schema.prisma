@@ -80,13 +80,15 @@ model Municipality {
 }
 
 model Loantype {
-  id           String    @id @default(cuid())
-  name         String    @default("")
-  weekDuration Int?
-  rate         Decimal   @postgresql.Decimal(10, 2)
-  createdAt    DateTime? @default(now())
-  updatedAt    DateTime?
-  loan         Loan[]    @relation("Loan_loantype")
+  id                   String    @id @default(cuid())
+  name                 String    @default("")
+  weekDuration         Int?
+  rate                 Decimal   @postgresql.Decimal(10, 2)
+  loanPaymentComission Decimal?  @default("0") @postgresql.Decimal(10, 2)
+  loanGrantedComission Decimal?  @default("0") @postgresql.Decimal(10, 2)
+  createdAt            DateTime? @default(now())
+  updatedAt            DateTime?
+  loan                 Loan[]    @relation("Loan_loantype")
 }
 
 model Phone {
@@ -170,6 +172,7 @@ model Loan {
   pendingAmountStored    Decimal?            @postgresql.Decimal(12, 2)
   comissionAmount        Decimal?            @postgresql.Decimal(18, 4)
   finishedDate           DateTime?
+  renewedDate            DateTime?
   updatedAt              DateTime?
   createdAt              DateTime?           @default(now())
   status                 String?
