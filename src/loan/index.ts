@@ -1,6 +1,6 @@
 import { getEmployeeIdsMap } from "../leads";
 import { prisma } from "../standaloneApp";
-import { chunkArray, convertExcelDate, groupPaymentsByOldLoanId, leads } from "../utils";
+import { chunkArray, convertExcelDate, groupPaymentsByOldLoanId, leads, clearAvalCache, createAllUniqueAvales, getOrAssignAvalId, cleanExistingDuplicates, forceCleanAdelina, forceCleanAllDuplicates, testFunction } from "../utils";
 import { ExcelLoanRelationship, ExcelRow, Loan } from "./types";
 import { Payments } from "../payments/types";
 import { extractPaymentData } from "../payments";
@@ -81,10 +81,65 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     leadName: string;
     leadAssignedAt: Date;
 }, leadMapping?: { [oldId: string]: string }) => {
+    // LOG INMEDIATO: Verificar que la función se ejecuta
+    console.log('\n🚀 ========== INICIANDO FUNCIÓN saveDataToDB ==========');
+    console.log('🚀 Esta línea debe aparecer ANTES de cualquier otra cosa');
+    console.log('🚀 Verificando que no hay errores de sintaxis...');
+    
+    // LOG SIMPLE: Verificar que llegamos a esta línea
+    console.log('🚀 LÍNEA 1: Función iniciada correctamente');
+    console.log('🚀 LÍNEA 2: Antes de la función de prueba');
+    
+    // LOG DE PRUEBA: Verificar que no hay errores de importación
+    console.log('🚀 LÍNEA 3: Verificando importaciones...');
+    console.log('🚀 LÍNEA 4: testFunction disponible:', typeof testFunction);
+    console.log('🚀 LÍNEA 5: forceCleanAllDuplicates disponible:', typeof forceCleanAllDuplicates);
+    
+    // LOG SIMPLE: Verificar que llegamos a esta línea
+    console.log('🚀 LÍNEA 6: Antes de la función de prueba');
+    console.log('🚀 LÍNEA 7: Verificando que no hay errores...');
+    
+    // FUNCIÓN DE PRUEBA SIMPLE: Verificar que se ejecuta
+    console.log('\n🧪 ========== FUNCIÓN DE PRUEBA SIMPLE ==========');
+    console.log('🧪 INICIANDO FUNCIÓN DE PRUEBA SIMPLE...');
+    console.log('🧪 ESTA FUNCIÓN DEBE EJECUTARSE SIN ERRORES');
+    
+    try {
+        console.log('🧪 PASO 1: Antes de llamar testFunction()...');
+        console.log('🧪 PASO 2: EJECUTANDO testFunction()...');
+        await testFunction();
+        console.log('🧪 PASO 3: DESPUÉS de testFunction()...');
+        console.log('✅ FUNCIÓN DE PRUEBA completada exitosamente');
+        
+        console.log('🧪 PASO 4: EJECUTANDO forceCleanAllDuplicates()...');
+        await forceCleanAllDuplicates();
+        console.log('✅ LIMPIEZA AGRESIVA completada exitosamente');
+        
+    } catch (error) {
+        console.error('❌ ERROR CRÍTICO: Falló la función:', error);
+        console.log('⚠️ Continuando con el proceso, pero pueden aparecer duplicados...');
+    }
+    console.log('🧪 ==========================================\n');
+    
+    // LOG DESPUÉS: Verificar que llegamos a esta línea
+    console.log('🚀 LÍNEA 3: Después de la función de prueba');
+    console.log('🚀 LÍNEA 4: Antes de limpiar cache de avales');
+    
+    // Limpiar cache de avales al inicio del proceso
+    clearAvalCache();
+    console.log('🧹 Cache de avales limpiado');
+    
+    // Pre-crear todos los avales únicos
+    await createAllUniqueAvales(loans);
+    
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
     console.log('notRenovatedLoans', notRenovatedLoans.length);
     console.log('renovatedLoans', renovatedLoans.length);
+    
+    // LOG DESPUÉS DE VARIABLES: Verificar que llegamos a esta línea
+    console.log('🚀 LÍNEA 6: Después de declarar variables de préstamos');
+    console.log('🚀 LÍNEA 7: Antes de crear loanTypes');
     
 
     //Create the loanTypes
@@ -150,14 +205,14 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('📋 Elementos en el último batch:', batches[batches.length - 1]?.length);
     console.log('🔍 Último elemento del último batch:', batches[batches.length - 1]?.[batches[batches.length - 1].length - 1]);
     console.log('❌ Préstamos sin pagos:', notRenovatedLoans.filter(item => !groupedPayments[item.id]).map(item => item.id));
-    console.log('❌ Préstamos sin lead:', notRenovatedLoans.filter(item => !employeeIdsMap[item.leadId.toString()]).map(item => ({ id: item.id, leadId: item.leadId })));
+    // Log removido para limpiar la consola
 
     
     let loansWithoutLead = 0;
     let loansProcessed = 0;
     for (const batch of batches) {
         let processedLoans = 0;
-        const transactionPromises = batch.map(item => {
+        const transactionPromises = batch.map(async (item) => {
             /* if (!groupedPayments[item.id]) {
                 return;
             } */
@@ -165,19 +220,19 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             // Obtener el ID del lead específico para este préstamo
             const specificLeadId = employeeIdsMap[item.leadId.toString()];
             if(!specificLeadId){
-                console.log(`❌ No lead id found for loan ${item.id}, leadId: ${item.leadId}`);
+                // Log removido para limpiar la consola
                 loansWithoutLead++; 
                 return;
             }
 
             // Verificar que el lead existe en el mapeo
             if (!specificLeadId) {
-                console.log(`❌ ERROR: Lead ${item.leadId} no tiene mapeo válido para loan ${item.id}`);
+                // Log removido para limpiar la consola
                 loansWithoutLead++;
                 return;
             }
 
-            console.log(`✅ Lead ${specificLeadId} verificado para loan ${item.id}`);
+            // Log removido para limpiar la consola
             const paymentsForLoan = groupedPayments[item.id] || [];
             //console.log('item.id', item);
             if(item.id === 7709){
@@ -280,11 +335,79 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             processedLoans++;
             
 
-            return prisma.loan.create({
+            // Obtener ID del aval (ya pre-creado)
+            const avalPersonalDataId = await getOrAssignAvalId(item.avalName);
+            
+            // VERIFICACIÓN EN TIEMPO REAL: Detectar si se está creando un duplicado de ERIKA
+            if (item.avalName && item.avalName.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                console.log(`🔍 VERIFICACIÓN EN TIEMPO REAL: ERIKA en préstamo ${item.id} -> ID: ${avalPersonalDataId}`);
+                
+                // VERIFICACIÓN CRÍTICA: Si el fullName del préstamo es igual al avalName
+                if (item.fullName === item.avalName) {
+                    console.log(`🚨 PROBLEMA CRÍTICO: El préstamo ${item.id} tiene el mismo nombre que su aval: "${item.fullName}"`);
+                    console.log(`🚨 Esto causará la creación de un registro duplicado en PersonalData!`);
+                }
+                
+                // LOG DETALLADO: Mostrar información del préstamo
+                console.log(`📋 DETALLES DEL PRÉSTAMO ${item.id}:`);
+                console.log(`   - fullName: "${item.fullName}"`);
+                console.log(`   - avalName: "${item.avalName}"`);
+                console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
+                
+                // Verificar cuántos registros de ERIKA existen en este momento
+                const erikaCount = await prisma.personalData.count({
+                    where: { fullName: { contains: 'ERIKA JUSSET PAREDES CHAVEZ' } }
+                });
+                
+                if (erikaCount > 1) {
+                    console.log(`🚨 ALERTA CRÍTICA: ERIKA tiene ${erikaCount} registros durante la creación del préstamo ${item.id}!`);
+                    
+                    // Mostrar todos los registros de ERIKA
+                    const erikaRecords = await prisma.personalData.findMany({
+                        where: { fullName: { contains: 'ERIKA JUSSET PAREDES CHAVEZ' } },
+                        select: { id: true, fullName: true, createdAt: true }
+                    });
+                    
+                    console.log('📊 Registros de ERIKA encontrados:');
+                    erikaRecords.forEach((record, index) => {
+                        console.log(`   ${index + 1}. ID: ${record.id} | Creado: ${record.createdAt}`);
+                    });
+                }
+            }
+
+            // SOLUCIÓN: Verificar si ya existe un PersonalData con este nombre (puede ser un aval)
+            // Si existe, reutilizarlo para evitar duplicados
+            let borrowerPersonalDataId: string | null = null;
+            
+            if (item.fullName && item.fullName.trim() !== '') {
+                // Buscar si ya existe un PersonalData con este nombre (puede ser un aval)
+                const existingPersonalData = await prisma.personalData.findFirst({
+                    where: { fullName: item.fullName.trim() }
+                });
+                
+                if (existingPersonalData) {
+                    borrowerPersonalDataId = existingPersonalData.id;
+                    if (item.fullName.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                        console.log(`🔄 ERIKA como borrower: Usando PersonalData existente ${existingPersonalData.id} en lugar de crear duplicado`);
+                    }
+                    // 🚨 LOG ESPECÍFICO PARA ALMA ROSA CANUL CHAN
+                    if (item.fullName.includes('ALMA ROSA CANUL CHAN')) {
+                        console.log(`🚨 ALMA ROSA CANUL CHAN como borrower: Usando PersonalData existente ${existingPersonalData.id} en lugar de crear duplicado`);
+                        console.log(`📋 DETALLES DEL PRÉSTAMO ${item.id}:`);
+                        console.log(`   - fullName: "${item.fullName}"`);
+                        console.log(`   - avalName: "${item.avalName}"`);
+                        console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
+                    }
+                }
+            }
+            
+            const createdLoan = await prisma.loan.create({
                 data: {
                     borrower: {
                         create: {
-                            personalData: {
+                            personalData: borrowerPersonalDataId ? {
+                                connect: { id: borrowerPersonalDataId }
+                            } : {
                                 create: {
                                     fullName: String(item.fullName),
                                     phones: item.titularPhone && item.titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(item.titularPhone) ? {
@@ -355,7 +478,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     signDate: item.givedDate,
                     amountGived: item.givedAmount.toString(),
                     requestedAmount: item.requestedAmount.toString(),
-                    avalName: item.avalName,
+                    avalName: item.avalName, // Mantener por compatibilidad temporal
                     avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                     finishedDate: item.finishedDate,
                     profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
@@ -373,12 +496,33 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     }
                 }
             });
+
+            // Conectar aval como collateral después de crear el préstamo usando SQL directo
+            if (avalPersonalDataId) {
+                try {
+                    await prisma.$executeRaw`
+                        INSERT INTO "_Loan_collaterals" ("A", "B") 
+                        VALUES (${createdLoan.id}, ${avalPersonalDataId})
+                        ON CONFLICT DO NOTHING
+                    `;
+                    // Solo log para ERIKA
+                    if (item.avalName?.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                        console.log(`✅ ERIKA conectada al préstamo: ${item.avalName} -> Loan ${item.id} -> ID: ${avalPersonalDataId}`);
+                    }
+                } catch (error) {
+                    if (item.avalName?.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                        console.error(`❌ Error conectando ERIKA al préstamo ${item.id}:`, error);
+                    }
+                }
+            }
+
+            return createdLoan;
         });
-        const cleanedData = transactionPromises.filter(item => item !== undefined);
+        const cleanedData = (await Promise.all(transactionPromises)).filter(item => item !== undefined);
         
         if (cleanedData.length > 0) {
             try {
-                await prisma.$transaction(cleanedData);
+                await Promise.all(cleanedData);
             } catch (error) {
                 console.log('error saving loans 244', error);
             }
@@ -465,11 +609,82 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         // Obtener el ID del lead específico para este préstamo renovado
         const specificLeadId = employeeIdsMap[item.leadId.toString()];
         if(!specificLeadId){
-            console.log('No lead id found for loan', item);
+            // Log removido para limpiar la consola
             loansWithoutLead++;
             return;
         }
-        await prisma.loan.create({
+
+        // Obtener ID del aval para préstamo renovado (ya pre-creado)
+        const avalPersonalDataId = await getOrAssignAvalId(item.avalName);
+        
+        // VERIFICACIÓN EN TIEMPO REAL: Detectar si se está creando un duplicado de ERIKA en préstamo renovado
+        if (item.avalName && item.avalName.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+            console.log(`🔍 VERIFICACIÓN EN TIEMPO REAL (RENOVADO): ERIKA en préstamo renovado ${item.id} -> ID: ${avalPersonalDataId}`);
+            
+            // VERIFICACIÓN CRÍTICA: Si el fullName del préstamo es igual al avalName
+            if (item.fullName === item.avalName) {
+                console.log(`🚨 PROBLEMA CRÍTICO (RENOVADO): El préstamo renovado ${item.id} tiene el mismo nombre que su aval: "${item.fullName}"`);
+                console.log(`🚨 Esto causará la creación de un registro duplicado en PersonalData!`);
+            }
+            
+            // LOG DETALLADO: Mostrar información del préstamo renovado
+            console.log(`📋 DETALLES DEL PRÉSTAMO RENOVADO ${item.id}:`);
+            console.log(`   - fullName: "${item.fullName}"`);
+            console.log(`   - avalName: "${item.avalName}"`);
+            console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
+            
+            // Verificar cuántos registros de ERIKA existen en este momento
+            const erikaCount = await prisma.personalData.count({
+                where: { fullName: { contains: 'ERIKA JUSSET PAREDES CHAVEZ' } }
+            });
+            
+            if (erikaCount > 1) {
+                console.log(`🚨 ALERTA CRÍTICA (RENOVADO): ERIKA tiene ${erikaCount} registros durante la creación del préstamo renovado ${item.id}!`);
+                
+                // Mostrar todos los registros de ERIKA
+                const erikaRecords = await prisma.personalData.findMany({
+                    where: { fullName: { contains: 'ERIKA JUSSET PAREDES CHAVEZ' } },
+                    select: { id: true, fullName: true, createdAt: true }
+                });
+                
+                console.log('📊 Registros de ERIKA encontrados (RENOVADO):');
+                erikaRecords.forEach((record, index) => {
+                    console.log(`   ${index + 1}. ID: ${record.id} | Creado: ${record.createdAt}`);
+                });
+            }
+        }
+        
+        // 🚨 LOG ESPECÍFICO PARA ALMA ROSA CANUL CHAN en préstamos renovados
+        if (item.avalName && item.avalName.includes('ALMA ROSA CANUL CHAN')) {
+            console.log(`🚨 ALMA ROSA CANUL CHAN como aval en préstamo renovado ${item.id}:`);
+            console.log(`📋 DETALLES DEL PRÉSTAMO RENOVADO ${item.id}:`);
+            console.log(`   - fullName: "${item.fullName}"`);
+            console.log(`   - avalName: "${item.avalName}"`);
+            console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
+            console.log(`   - ID del aval: ${avalPersonalDataId}`);
+            
+            // Verificar cuántos registros de ALMA ROSA existen en este momento
+            const almaRosaCount = await prisma.personalData.count({
+                where: { fullName: { contains: 'ALMA ROSA CANUL CHAN' } }
+            });
+            
+            if (almaRosaCount > 1) {
+                console.log(`🚨 ALERTA CRÍTICA (RENOVADO): ALMA ROSA tiene ${almaRosaCount} registros durante la creación del préstamo renovado ${item.id}!`);
+                
+                // Mostrar todos los registros de ALMA ROSA
+                const almaRosaRecords = await prisma.personalData.findMany({
+                    where: { fullName: { contains: 'ALMA ROSA CANUL CHAN' } },
+                    select: { id: true, fullName: true, createdAt: true }
+                });
+                
+                console.log('📊 Registros de ALMA ROSA encontrados (RENOVADO):');
+                almaRosaRecords.forEach((record, index) => {
+                    console.log(`   ${index + 1}. ID: ${record.id} | Creado: ${record.createdAt}`);
+                });
+            }
+        }
+
+        const createdRenovatedLoan = await prisma.loan.create({
             data: {
                 oldId: item.id.toString(),
                 signDate: item.givedDate,
@@ -487,7 +702,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     }
                 },
                 status: determineLoanStatus(item, loans),
-                avalName: item.avalName,
+                avalName: item.avalName, // Mantener por compatibilidad temporal
                 avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                 finishedDate: item.finishedDate,
                 borrower: previousLoan?.borrowerId ? {
@@ -558,6 +773,25 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 }
             },
         });
+
+        // Conectar aval como collateral después de crear el préstamo renovado usando SQL directo
+        if (avalPersonalDataId) {
+            try {
+                await prisma.$executeRaw`
+                    INSERT INTO "_Loan_collaterals" ("A", "B") 
+                    VALUES (${createdRenovatedLoan.id}, ${avalPersonalDataId})
+                    ON CONFLICT DO NOTHING
+                `;
+                // Solo log para ERIKA
+                if (item.avalName?.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                    console.log(`✅ ERIKA conectada al préstamo renovado: ${item.avalName} -> Loan ${item.id} -> ID: ${avalPersonalDataId}`);
+                }
+            } catch (error) {
+                if (item.avalName?.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                    console.error(`❌ Error conectando ERIKA al préstamo renovado ${item.id}:`, error);
+                }
+            }
+        }
     };
 
     //OBTEN TODOS LOS LOANS QUE TIENEN UN PREVIOUS LOAN Y MARCA EL PREVIOUS LOAN COMO RENOVATED
@@ -655,7 +889,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         if (prevIds.length > 0) {
             const prevLoans = await prisma.loan.findMany({
                 where: { id: { in: prevIds } },
-                select: { id: true, finishedDate: true, renewedDate: true }
+                select: { id: true, finishedDate: true }
             });
             prevLoans.forEach(p => prevMap.set(p.id, p.finishedDate ? new Date(p.finishedDate) : null));
         }
@@ -668,32 +902,34 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 const childSign = l.signDate as Date;
                 const prevFinished = prevMap.get(prevId) ?? null;
                 
-                // Actualizar tanto finishedDate como renewedDate
-                const updateData: any = {};
-                
+                // Actualizar tanto finishedDate como renewedDate usando SQL directo para evitar problemas de tipos
                 if (!prevFinished) {
-                    updateData.finishedDate = childSign;
-                    updateData.renewedDate = childSign;
                     if(["7150"].includes(l.oldId as string)){
                         console.log('====1338===', prevId, childSign);
                     }
-                    return prisma.loan.update({ where: { id: prevId }, data: updateData });
+                    return prisma.$executeRaw`
+                        UPDATE "Loan" 
+                        SET "finishedDate" = ${childSign}, "renewedDate" = ${childSign}
+                        WHERE id = ${prevId}
+                    `;
                 }
                 
                 if (isSameWorkWeek(prevFinished, childSign) && prevFinished.getTime() !== childSign.getTime()) {
-                    updateData.finishedDate = childSign;
-                    updateData.renewedDate = childSign;
-                    return prisma.loan.update({ where: { id: prevId }, data: updateData });
+                    return prisma.$executeRaw`
+                        UPDATE "Loan" 
+                        SET "finishedDate" = ${childSign}, "renewedDate" = ${childSign}
+                        WHERE id = ${prevId}
+                    `;
                 }
                 
                 return null;
             })
-            .filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
+            .filter(u => Boolean(u));
 
         if (updates.length > 0) {
             const batches = chunkArray(updates, 200);
             for (const batch of batches) {
-                await prisma.$transaction(batch);
+                await Promise.all(batch);
             }
             console.log(`✅ Sincronizados finishedDate y renewedDate de préstamos previos por renovaciones (>=1 semana): ${updates.length}`);
         }
@@ -847,6 +1083,210 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             }
         }
     }
+    
+    // 🚨 LIMPIEZA FINAL: Después de crear TODOS los préstamos, limpiar duplicados restantes
+    console.log('\n🚨 ========== LIMPIEZA FINAL DE DUPLICADOS ==========');
+    console.log('🔍 Buscando duplicados restantes después de crear préstamos...');
+    
+    try {
+        const finalDuplicates = await prisma.$queryRaw<{fullName: string, count: bigint}[]>`
+            SELECT "fullName", COUNT(*) as count
+            FROM "PersonalData"
+            WHERE "fullName" IS NOT NULL AND "fullName" != ''
+            GROUP BY "fullName"
+            HAVING COUNT(*) > 1
+            ORDER BY COUNT(*) DESC
+        `;
+        
+        if (finalDuplicates.length === 0) {
+            console.log('✅ ÉXITO TOTAL: No quedan duplicados después de crear préstamos!');
+        } else {
+            console.log(`🚨 ENCONTRADOS ${finalDuplicates.length} NOMBRES DUPLICADOS FINALES!`);
+            console.log('📊 TODOS los duplicados restantes:');
+            finalDuplicates.forEach((dup, index) => {
+                console.log(`   ${index + 1}. "${dup.fullName}": ${dup.count} registros`);
+            });
+            
+            // LIMPIEZA AGRESIVA FINAL
+            console.log('\n🧹 EJECUTANDO LIMPIEZA AGRESIVA FINAL...');
+            await forceCleanAllDuplicates();
+            
+            // VERIFICACIÓN FINAL
+            console.log('\n🔍 VERIFICACIÓN FINAL DESPUÉS DE LIMPIEZA AGRESIVA...');
+            const finalCheck = await prisma.$queryRaw<{fullName: string, count: bigint}[]>`
+                SELECT "fullName", COUNT(*) as count
+                FROM "PersonalData"
+                WHERE "fullName" IS NOT NULL AND "fullName" != ''
+                GROUP BY "fullName"
+                HAVING COUNT(*) > 1
+                ORDER BY COUNT(*) DESC
+            `;
+            
+            if (finalCheck.length === 0) {
+                console.log('✅ ÉXITO TOTAL FINAL: No quedan duplicados!');
+            } else {
+                console.log(`⚠️ ADVERTENCIA FINAL: Aún quedan ${finalCheck.length} nombres duplicados`);
+                finalCheck.forEach((dup, index) => {
+                    console.log(`   ${index + 1}. "${dup.fullName}": ${dup.count} registros`);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error en limpieza final:', error);
+    }
+    
+    console.log('🚨 ================================================');
+
+    // ========== LIMPIEZA Y REPORTE FINAL DE ERIKA JUSSET PAREDES CHAVEZ ==========
+    console.log('\n🔍 ========== REPORTE FINAL: ERIKA JUSSET PAREDES CHAVEZ ==========');
+    
+    try {
+        // Buscar registros de ERIKA en PersonalData
+        const erikaPersonalData = await prisma.personalData.findMany({
+            where: {
+                fullName: {
+                    contains: 'ERIKA JUSSET PAREDES CHAVEZ'
+                }
+            }
+        });
+        
+        console.log(`📊 Total registros de ERIKA encontrados: ${erikaPersonalData.length}`);
+        
+        if (erikaPersonalData.length > 1) {
+            console.log('🧹 LIMPIANDO: ERIKA tiene múltiples registros, consolidando...');
+            
+            // Consolidar TODOS los préstamos en el primer registro y eliminar duplicados
+            const mainErika = erikaPersonalData[0]; // Usar el primer registro como principal
+            const duplicatesToDelete: string[] = [];
+            
+            console.log(`📌 Registro principal: ${mainErika.id}`);
+            
+            for (let i = 1; i < erikaPersonalData.length; i++) {
+                const duplicateErika = erikaPersonalData[i];
+                
+                // Verificar si tiene préstamos asociados
+                const loanCount = await prisma.$queryRaw<{count: bigint}[]>`
+                    SELECT COUNT(*) as count 
+                    FROM "_Loan_collaterals" 
+                    WHERE "B" = ${duplicateErika.id}
+                `;
+                const count = Number(loanCount[0]?.count || 0);
+                console.log(`   Duplicado ${duplicateErika.id} | Préstamos: ${count}`);
+                
+                if (count > 0) {
+                    // Mover TODOS los préstamos al registro principal
+                    console.log(`🔄 Moviendo ${count} préstamos de ${duplicateErika.id} → ${mainErika.id}`);
+                    await prisma.$executeRaw`
+                        UPDATE "_Loan_collaterals" 
+                        SET "B" = ${mainErika.id} 
+                        WHERE "B" = ${duplicateErika.id}
+                    `;
+                    
+                    // Verificar que se movieron correctamente
+                    const remainingCount = await prisma.$queryRaw<{count: bigint}[]>`
+                        SELECT COUNT(*) as count 
+                        FROM "_Loan_collaterals" 
+                        WHERE "B" = ${duplicateErika.id}
+                    `;
+                    const remaining = Number(remainingCount[0]?.count || 0);
+                    
+                    if (remaining === 0) {
+                        console.log(`✅ Préstamos movidos exitosamente, marcando para eliminación`);
+                        duplicatesToDelete.push(duplicateErika.id);
+                    } else {
+                        console.log(`⚠️ ADVERTENCIA: Aún quedan ${remaining} préstamos en ${duplicateErika.id}, NO eliminando`);
+                    }
+                } else {
+                    console.log(`✅ Sin préstamos, marcando para eliminación`);
+                    duplicatesToDelete.push(duplicateErika.id);
+                }
+            }
+            
+            // Eliminar duplicados sin préstamos
+            if (duplicatesToDelete.length > 0) {
+                console.log(`🗑️ Eliminando ${duplicatesToDelete.length} registros duplicados de ERIKA...`);
+                await prisma.personalData.deleteMany({
+                    where: {
+                        id: { in: duplicatesToDelete }
+                    }
+                });
+                console.log(`✅ Duplicados eliminados: ${duplicatesToDelete.join(', ')}`);
+            }
+            
+            // Consultar estado final del registro principal
+            const finalLoanResults = await prisma.$queryRaw<{oldId: string}[]>`
+                SELECT l."oldId" 
+                FROM "_Loan_collaterals" lc
+                JOIN "Loan" l ON l.id = lc."A"
+                WHERE lc."B" = ${mainErika.id}
+            `;
+            
+            console.log(`✅ CONSOLIDADO: ERIKA ahora tiene un solo registro:`);
+            console.log(`   ID: ${mainErika.id}`);
+            console.log(`   Nombre: "${mainErika.fullName}"`);
+            console.log(`   Préstamos como aval: ${finalLoanResults.length}`);
+            if (finalLoanResults.length > 0) {
+                console.log(`   IDs de préstamos: ${finalLoanResults.map(l => l.oldId).join(', ')}`);
+            }
+            
+        } else if (erikaPersonalData.length === 1) {
+            const erika = erikaPersonalData[0];
+            console.log(`✅ ÉXITO: ERIKA tiene un solo registro:`);
+            console.log(`   ID: ${erika.id}`);
+            console.log(`   Nombre: "${erika.fullName}"`);
+            
+            // Consultar préstamos donde es aval usando SQL directo
+            const loanResults = await prisma.$queryRaw<{oldId: string}[]>`
+                SELECT l."oldId" 
+                FROM "_Loan_collaterals" lc
+                JOIN "Loan" l ON l.id = lc."A"
+                WHERE lc."B" = ${erika.id}
+            `;
+            
+            console.log(`   Préstamos como aval: ${loanResults.length}`);
+            if (loanResults.length > 0) {
+                console.log(`   IDs de préstamos: ${loanResults.map(l => l.oldId).join(', ')}`);
+            }
+        } else {
+            console.log('⚠️ ADVERTENCIA: No se encontraron registros de ERIKA');
+        }
+        
+    } catch (error) {
+        console.error('❌ Error consultando/limpiando registros de ERIKA:', error);
+    }
+    
+    console.log('🔍 ================================================================\n');
+    
+    // VERIFICACIÓN FINAL: ADELINA PALMA TACU
+    console.log('\n🎯 ========== VERIFICACIÓN FINAL: ADELINA PALMA TACU ==========');
+    try {
+        const finalAdelinaCheck = await prisma.personalData.findMany({
+            where: { 
+                fullName: { 
+                    contains: 'ADELINA PALMA TACU',
+                    mode: 'insensitive'
+                } 
+            }
+        });
+        
+        if (finalAdelinaCheck.length === 1) {
+            console.log('✅ VERIFICACIÓN FINAL: ADELINA PALMA TACU tiene solo 1 registro');
+            console.log(`   ID: ${finalAdelinaCheck[0].id}`);
+        } else if (finalAdelinaCheck.length > 1) {
+            console.log(`❌ VERIFICACIÓN FINAL: ADELINA PALMA TACU sigue teniendo ${finalAdelinaCheck.length} registros!`);
+            console.log('🚨 Ejecutando limpieza de emergencia...');
+            await forceCleanAdelina();
+        } else {
+            console.log('⚠️ VERIFICACIÓN FINAL: No se encontraron registros de ADELINA PALMA TACU');
+        }
+    } catch (error) {
+        console.error('❌ Error en verificación final de ADELINA:', error);
+    }
+    console.log('🎯 ============================================================\n');
+    
+    // LOG FINAL: Verificar que la función se completó
+    console.log('\n🚀 ========== FUNCIÓN saveDataToDB COMPLETADA ==========');
+    console.log('🚀 Esta línea debe aparecer AL FINAL de todo el proceso');
 
 };
 
