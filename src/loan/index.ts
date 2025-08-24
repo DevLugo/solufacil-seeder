@@ -18,6 +18,24 @@ interface BorrowerCache {
 // Cache global para mantener borrowers únicos
 let borrowerCache: BorrowerCache = {};
 
+// Función para generar ID único con timestamp
+const generateUniqueId = (prefix: string): string => {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 15);
+    const unique = `${prefix}_${timestamp}_${random}`;
+    return unique;
+};
+
+// Función para validar que un ID sea único en el cache
+const isIdUniqueInCache = (id: string, cache: BorrowerCache): boolean => {
+    for (const entry of Object.values(cache)) {
+        if (entry.borrowerId === id || entry.personalDataId === id) {
+            return false;
+        }
+    }
+    return true;
+};
+
 // Función para obtener o crear borrower basándose en el fullName
 const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Promise<{ borrowerId: string; personalDataId: string }> => {
     const normalizedName = fullName.trim();
@@ -58,34 +76,110 @@ const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Pro
             return result;
         } else {
             // Existe personalData pero no borrower, crear borrower
-            const newBorrower = await prisma.borrower.create({
-                data: {
-                    personalData: {
-                        connect: { id: existingPersonalData.id }
-                    }
-                }
+            // VERIFICAR QUE NO EXISTA YA UN BORROWER PARA ESTE PERSONALDATA
+            const existingBorrower = await prisma.borrower.findFirst({
+                where: { personalDataId: existingPersonalData.id }
             });
             
-            const result = {
-                borrowerId: newBorrower.id,
-                personalDataId: existingPersonalData.id
-            };
+            if (existingBorrower) {
+                // Ya existe un borrower, usar ese
+                const result = {
+                    borrowerId: existingBorrower.id,
+                    personalDataId: existingPersonalData.id
+                };
+                
+                // Agregar al cache
+                borrowerCache[normalizedName] = {
+                    borrowerId: result.borrowerId,
+                    personalDataId: result.personalDataId,
+                    fullName: normalizedName
+                };
+                
+                console.log(`🔄 Encontrado borrower existente para personalData: "${normalizedName}" -> ID: ${result.borrowerId}`);
+                return result;
+            }
             
-            // Agregar al cache
-            borrowerCache[normalizedName] = {
-                borrowerId: result.borrowerId,
-                personalDataId: result.personalDataId,
-                fullName: normalizedName
-            };
+            // Generar ID único para borrower
+            let borrowerId: string;
             
-            console.log(`🆕 Creado nuevo borrower para personalData existente: "${normalizedName}" -> ID: ${result.borrowerId}`);
-            return result;
+            do {
+                borrowerId = generateUniqueId('br');
+            } while (!isIdUniqueInCache(borrowerId, borrowerCache));
+            
+            try {
+                const newBorrower = await prisma.borrower.create({
+                    data: {
+                        id: borrowerId, // Usar nuestro ID único
+                        personalData: {
+                            connect: { id: existingPersonalData.id }
+                        }
+                    }
+                });
+                
+                const result = {
+                    borrowerId: borrowerId,
+                    personalDataId: existingPersonalData.id
+                };
+                
+                // Agregar al cache
+                borrowerCache[normalizedName] = {
+                    borrowerId: result.borrowerId,
+                    personalDataId: result.personalDataId,
+                    fullName: normalizedName
+                };
+                
+                console.log(`🆕 Creado nuevo borrower para personalData existente: "${normalizedName}" -> ID: ${result.borrowerId}`);
+                return result;
+                
+                         } catch (error: any) {
+                 if (error.code === 'P2002') {
+                    // Constraint único falló, buscar el borrower que ya existe
+                    console.log(`⚠️ Constraint único falló para "${normalizedName}", buscando borrower existente...`);
+                    
+                    const existingBorrower = await prisma.borrower.findFirst({
+                        where: { personalDataId: existingPersonalData.id }
+                    });
+                    
+                    if (existingBorrower) {
+                        const result = {
+                            borrowerId: existingBorrower.id,
+                            personalDataId: existingPersonalData.id
+                        };
+                        
+                        // Agregar al cache
+                        borrowerCache[normalizedName] = {
+                            borrowerId: result.borrowerId,
+                            personalDataId: result.personalDataId,
+                            fullName: normalizedName
+                        };
+                        
+                        console.log(`🔄 Recuperado borrower existente después de constraint: "${normalizedName}" -> ID: ${result.borrowerId}`);
+                        return result;
+                    }
+                }
+                
+                // Si no se puede recuperar, re-lanzar el error
+                throw error;
+            }
         }
     }
     
     // No existe, crear todo desde cero
+    // Generar IDs únicos
+    let personalDataId: string;
+    let borrowerId: string;
+    
+    do {
+        personalDataId = generateUniqueId('pd');
+    } while (!isIdUniqueInCache(personalDataId, borrowerCache));
+    
+    do {
+        borrowerId = generateUniqueId('br');
+    } while (!isIdUniqueInCache(borrowerId, borrowerCache));
+    
     const newPersonalData = await prisma.personalData.create({
         data: {
+            id: personalDataId, // Usar nuestro ID único
             fullName: normalizedName,
             phones: titularPhone && titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(titularPhone) ? {
                 create: {
@@ -97,15 +191,16 @@ const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Pro
     
     const newBorrower = await prisma.borrower.create({
         data: {
+            id: borrowerId, // Usar nuestro ID único
             personalData: {
-                connect: { id: newPersonalData.id }
+                connect: { id: personalDataId }
             }
         }
     });
     
     const result = {
-        borrowerId: newBorrower.id,
-        personalDataId: newPersonalData.id
+        borrowerId: borrowerId,
+        personalDataId: personalDataId
     };
     
     // Agregar al cache
@@ -115,7 +210,6 @@ const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Pro
         fullName: normalizedName
     };
     
-    console.log(`🆕 Creado nuevo borrower y personalData: "${normalizedName}" -> Borrower ID: ${result.borrowerId}, PersonalData ID: ${result.personalDataId}`);
     return result;
 };
 
@@ -202,35 +296,18 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 }, leadMapping?: { [oldId: string]: string }) => {
     // LOG INMEDIATO: Verificar que la función se ejecuta
     console.log('\n🚀 ========== INICIANDO FUNCIÓN saveDataToDB ==========');
-    console.log('🚀 Esta línea debe aparecer ANTES de cualquier otra cosa');
-    console.log('🚀 Verificando que no hay errores de sintaxis...');
-    
-    // LOG SIMPLE: Verificar que llegamos a esta línea
-    console.log('🚀 LÍNEA 1: Función iniciada correctamente');
-    console.log('🚀 LÍNEA 2: Antes de la función de prueba');
-    
-    // LOG DE PRUEBA: Verificar que no hay errores de importación
-    console.log('🚀 LÍNEA 3: Verificando importaciones...');
-    console.log('🚀 LÍNEA 4: testFunction disponible:', typeof testFunction);
-    console.log('🚀 LÍNEA 5: forceCleanAllDuplicates disponible:', typeof forceCleanAllDuplicates);
-    
-    // LOG SIMPLE: Verificar que llegamos a esta línea
-    console.log('🚀 LÍNEA 6: Antes de la función de prueba');
-    console.log('🚀 LÍNEA 7: Verificando que no hay errores...');
-    
-    // FUNCIÓN DE PRUEBA SIMPLE: Verificar que se ejecuta
-    console.log('\n🧪 ========== FUNCIÓN DE PRUEBA SIMPLE ==========');
-    console.log('🧪 INICIANDO FUNCIÓN DE PRUEBA SIMPLE...');
-    console.log('🧪 ESTA FUNCIÓN DEBE EJECUTARSE SIN ERRORES');
     
     try {
-        console.log('🧪 PASO 1: Antes de llamar testFunction()...');
-        console.log('🧪 PASO 2: EJECUTANDO testFunction()...');
-        await testFunction();
-        console.log('🧪 PASO 3: DESPUÉS de testFunction()...');
-        console.log('✅ FUNCIÓN DE PRUEBA completada exitosamente');
         
-        console.log('🧪 PASO 4: EJECUTANDO forceCleanAllDuplicates()...');
+    
+    
+    
+    try {
+        
+        await testFunction();
+        
+        
+        
         await forceCleanAllDuplicates();
         console.log('✅ LIMPIEZA AGRESIVA completada exitosamente');
         
@@ -250,7 +327,18 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('🧹 Cache de avales y borrowers limpiado');
     
     // Pre-crear todos los avales únicos
-    await createAllUniqueAvales(loans);
+    console.log('🔄 Pre-creando avales únicos...');
+    
+    try {
+        console.log('🔄 ========== PASO CRÍTICO: Antes de createAllUniqueAvales ==========');
+        await createAllUniqueAvales(loans);
+        console.log('✅ Avales únicos pre-creados');
+        console.log('🔄 ========== PASO CRÍTICO: Después de createAllUniqueAvales ==========');
+    } catch (error) {
+        console.error('❌ ERROR CRÍTICO en createAllUniqueAvales:', error);
+        console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace disponible');
+        throw error;
+    }
     
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
@@ -518,8 +606,6 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     signDate: item.givedDate,
                     amountGived: item.givedAmount.toString(),
                     requestedAmount: item.requestedAmount.toString(),
-                    avalName: item.avalName, // Mantener por compatibilidad temporal
-                    avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                     finishedDate: item.finishedDate,
                     profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
                     transactions: {
@@ -743,8 +829,6 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     }
                 },
                 status: determineLoanStatus(item, loans),
-                avalName: item.avalName, // Mantener por compatibilidad temporal
-                avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                 finishedDate: item.finishedDate,
                 borrower: previousLoan?.borrowerId ? {
                     connect: {
@@ -1336,13 +1420,18 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('🔍 Estado del cache antes del reporte final...');
     console.log(`📈 Total de borrowers únicos en cache: ${Object.keys(borrowerCache).length}`);
     if (Object.keys(borrowerCache).length > 0) {
-        console.log('📋 Detalle de borrowers en cache:');
+        /* console.log('📋 Detalle de borrowers en cache:'); */
         Object.entries(borrowerCache).forEach(([fullName, data], index) => {
-            console.log(`   ${index + 1}. "${fullName}" -> Borrower ID: ${data.borrowerId}, PersonalData ID: ${data.personalDataId}`);
+            /* console.log(`   ${index + 1}. "${fullName}" -> Borrower ID: ${data.borrowerId}, PersonalData ID: ${data.personalDataId}`); */
         });
     }
     console.log('📊 ============================================================\n');
-
+    
+    } catch (error) {
+        console.error('❌ ERROR CRÍTICO GENERAL EN saveDataToDB:', error);
+        console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace disponible');
+        throw error; // Re-lanzar el error para que se capture en el nivel superior
+    }
 };
 
 export const seedLoans = async (cashAccountId: string, bankAccountId: string, snapshotData: {

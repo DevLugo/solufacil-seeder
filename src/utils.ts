@@ -451,18 +451,11 @@ export const forceCleanAllDuplicates = async (): Promise<void> => {
 
 // Función de PRUEBA simple para verificar que se ejecuta
 export const testFunction = async (): Promise<void> => {
-    console.log('🧪 FUNCIÓN DE PRUEBA: Esta función se ejecuta correctamente');
-    console.log('🧪 PASO 1: Función iniciada');
     
     try {
-        console.log('🧪 PASO 2: Intentando conectar a la base de datos...');
-        
-        // Verificación simple sin queries complejas
-        console.log('🧪 PASO 3: Ejecutando count simple...');
+    
         const count = await prisma.personalData.count();
-        console.log(`🧪 PASO 4: Count exitoso - Total registros: ${count}`);
         
-        console.log('🧪 PASO 5: Intentando query de duplicados...');
         const duplicates = await prisma.$queryRaw<{fullName: string, count: bigint}[]>`
             SELECT "fullName", COUNT(*) as count
             FROM "PersonalData"
@@ -472,7 +465,6 @@ export const testFunction = async (): Promise<void> => {
             ORDER BY COUNT(*) DESC
         `;
         
-        console.log(`🧪 PASO 6: Query exitosa - Duplicados encontrados: ${duplicates.length}`);
         
         if (duplicates.length > 0) {
             console.log('🧪 PASO 7: Mostrando primeros 3 duplicados...');
@@ -481,7 +473,6 @@ export const testFunction = async (): Promise<void> => {
             });
         }
         
-        console.log('🧪 PASO 8: FUNCIÓN DE PRUEBA completada exitosamente');
         
     } catch (error) {
         console.error('🧪 ERROR en función de prueba:', error);

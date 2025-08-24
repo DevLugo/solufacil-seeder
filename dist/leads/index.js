@@ -7,33 +7,23 @@ const xlsx = require('xlsx');
 const extractLeadsData = (excelFileName, routeName) => {
     const excelFilePath = excelFileName;
     const tabName = 'LIDERES';
-    console.log(`📁 Leyendo archivo: ${excelFilePath}`);
-    console.log(`📋 Buscando hoja: ${tabName}`);
     // Leer el archivo Excel
     const workbook = xlsx.readFile(excelFilePath);
     // Obtener la hoja especificada
     const sheetLeads = workbook.Sheets[tabName];
     if (!sheetLeads) {
-        console.log(`❌ No se encontró la hoja "${tabName}"`);
-        console.log(`📋 Hojas disponibles:`, Object.keys(workbook.Sheets));
         return [];
     }
-    console.log(`✅ Hoja "${tabName}" encontrada`);
     // Convertir la hoja a formato JSON
     const data = xlsx.utils.sheet_to_json(sheetLeads, { header: 1 });
-    console.log(`📊 Filas extraídas: ${data.length}`);
-    console.log(`🔍 Primera fila (headers):`, data[0]);
     let leadsData = [];
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
-        console.log(`📝 Procesando fila ${i}:`, row);
         // Si la fila está vacía o solo tiene valores vacíos, detener el procesamiento
         if (!row || row.every((cell) => !cell || cell === '')) {
-            console.log(`🛑 Fila ${i} está vacía, deteniendo extracción`);
             break;
         }
         // Solo agregar si el líder está activo (columna 16 = "SI")
-        console.log(`🔍 Fila ${i}: activo = "${row[17]}" ruta = "${row[21]}"`);
         if (row[17] === 'SI' && row[21] === routeName) {
             leadsData.push({
                 oldId: String(row[0]),
@@ -55,7 +45,6 @@ const extractLeadsData = (excelFileName, routeName) => {
                 activo: row[17] || '', // ACTIVO
                 ruta: row[18] || '' // RUTA
             });
-            console.log(`✅ Agregado líder: ${row[1]} ${row[2]}`);
         }
     }
     return leadsData;
@@ -71,7 +60,6 @@ async function getOrCreateLocation(estado, municipio, localidad, routeId) {
         state = await standaloneApp_1.prisma.state.create({
             data: { name: estado }
         });
-        console.log(`✅ Estado creado: ${estado}`);
     }
     // Buscar si ya existe el municipio
     let municipality = await standaloneApp_1.prisma.municipality.findFirst({
@@ -87,7 +75,6 @@ async function getOrCreateLocation(estado, municipio, localidad, routeId) {
                 stateId: state.id
             }
         });
-        console.log(`✅ Municipio creado: ${municipality.name} en ${estado}`);
     }
     // Buscar si ya existe la localidad
     let location = await standaloneApp_1.prisma.location.findFirst({
@@ -97,7 +84,6 @@ async function getOrCreateLocation(estado, municipio, localidad, routeId) {
         }
     });
     if (!location) {
-        console.log(`⚠️ Localidad no encontrada: ${localidad} en ${municipality.name}. Creando nueva localidad.`);
         try {
             location = await standaloneApp_1.prisma.location.create({
                 data: {
@@ -106,10 +92,8 @@ async function getOrCreateLocation(estado, municipio, localidad, routeId) {
                     routeId: routeId
                 }
             });
-            console.log(`✅ Localidad creada: ${localidad} en ${municipality.name}`);
         }
         catch (error) {
-            console.log(`⚠️ Error al crear localidad: ${error}. Buscando localidad existente.`);
             // Si falla la creación, buscar la localidad que ya existe
             location = await standaloneApp_1.prisma.location.findFirst({
                 where: {
@@ -123,25 +107,18 @@ async function getOrCreateLocation(estado, municipio, localidad, routeId) {
         }
     }
     else {
-        console.log(`✅ Localidad encontrada: ${localidad} en ${municipality.name}`);
     }
     return location;
 }
 const seedLeads = async (routeId, routeName, excelFileName) => {
-    console.log(`🔍 Extrayendo líderes del Excel para la ruta: ${routeName}`);
     const leadsData = (0, exports.extractLeadsData)(excelFileName, routeName);
-    console.log(`📊 Total de líderes extraídos del Excel: ${leadsData.length}`);
     // Tomar todos los líderes extraídos del Excel (sin filtrar por ruta)
     const routeLeads = leadsData;
-    console.log(`📊 Encontrados ${routeLeads.length} líderes del Excel (todos para la ruta "${routeName}")`);
-    console.log(`📋 Total de líderes activos extraídos: ${routeLeads.length}`);
-    console.log(`🔍 Lista de líderes activos:`);
-    routeLeads.forEach((lead, index) => {
+    /* routeLeads.forEach((lead, index) => {
         console.log(`  ${index + 1}. ${lead.nombre} ${lead.apellidos} - Estado: ${lead.activo}`);
-    });
+    }); */
     // Continuar con el proceso completo
     for (const lead of routeLeads) {
-        console.log(`📝 Procesando líder: ${JSON.stringify(lead)}`);
         // Obtener o crear la localidad para este líder
         const location = await getOrCreateLocation(lead.estado, lead.municipio, lead.localidad, routeId);
         // Crear el empleado con datos personales y dirección
@@ -179,7 +156,6 @@ const seedLeads = async (routeId, routeName, excelFileName) => {
             },
             type: 'LEAD',
         };
-        console.log(`📝 Creando líder: ${lead.nombre} ${lead.apellidos} con dirección en ${lead.localidad}`);
         const createdEmployee = await standaloneApp_1.prisma.employee.create({
             data: employeeData,
             include: {
@@ -203,8 +179,27 @@ const seedLeads = async (routeId, routeName, excelFileName) => {
                 }
             }
         });
-        console.log(`✅ Líder creado: ${createdEmployee.personalData?.fullName} con ${createdEmployee.personalData?.addresses?.length || 0} direcciones`);
-        console.log(`📍 Dirección: ${lead.calle} ${lead.numero}, ${lead.localidad}, ${lead.municipio}, ${lead.estado}`);
+        // Generar clientCode único para PersonalData
+        if (createdEmployee.personalData?.id) {
+            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            const length = 6;
+            const generate = () => Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+            let attempts = 0;
+            let code = generate();
+            try {
+                while (attempts < 5) {
+                    const existing = await standaloneApp_1.prisma.personalData.findUnique({ where: { clientCode: code } });
+                    if (!existing)
+                        break;
+                    code = generate();
+                    attempts++;
+                }
+                await standaloneApp_1.prisma.personalData.update({ where: { id: createdEmployee.personalData.id }, data: { clientCode: code } });
+            }
+            catch (e) {
+                console.error('Error generating clientCode:', e);
+            }
+        }
     }
     ;
 };

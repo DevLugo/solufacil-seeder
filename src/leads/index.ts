@@ -26,10 +26,6 @@ interface ExcelLead {
 export const extractLeadsData = (excelFileName: string, routeName: string) => {
     const excelFilePath = excelFileName;
     const tabName = 'LIDERES';
-
-    console.log(`📁 Leyendo archivo: ${excelFilePath}`);
-    console.log(`📋 Buscando hoja: ${tabName}`);
-
     // Leer el archivo Excel
     const workbook = xlsx.readFile(excelFilePath);
 
@@ -37,33 +33,24 @@ export const extractLeadsData = (excelFileName: string, routeName: string) => {
     const sheetLeads = workbook.Sheets[tabName];
     
     if (!sheetLeads) {
-        console.log(`❌ No se encontró la hoja "${tabName}"`);
-        console.log(`📋 Hojas disponibles:`, Object.keys(workbook.Sheets));
         return [];
     }
-
-    console.log(`✅ Hoja "${tabName}" encontrada`);
 
     // Convertir la hoja a formato JSON
     const data = xlsx.utils.sheet_to_json(sheetLeads, { header: 1 });
     
-    console.log(`📊 Filas extraídas: ${data.length}`);
-    console.log(`🔍 Primera fila (headers):`, data[0]);
-
            let leadsData: ExcelLead[] = [];
        
        for (let i = 1; i < data.length; i++) {
            const row = data[i];
-           console.log(`📝 Procesando fila ${i}:`, row);
            
            // Si la fila está vacía o solo tiene valores vacíos, detener el procesamiento
            if (!row || row.every((cell: any) => !cell || cell === '')) {
-               console.log(`🛑 Fila ${i} está vacía, deteniendo extracción`);
                break;
            }
            
            // Solo agregar si el líder está activo (columna 16 = "SI")
-           console.log(`🔍 Fila ${i}: activo = "${row[17]}" ruta = "${row[21]}"`);
+           
            if (row[17] === 'SI' && row[21] === routeName) {
                leadsData.push({
                    oldId: String(row[0]),
@@ -85,7 +72,6 @@ export const extractLeadsData = (excelFileName: string, routeName: string) => {
                    activo: row[17] || '', // ACTIVO
                    ruta: row[18] || '' // RUTA
                });
-               console.log(`✅ Agregado líder: ${row[1]} ${row[2]}`);
            }
        }
 
@@ -103,7 +89,6 @@ async function getOrCreateLocation(estado: string, municipio: string, localidad:
         state = await prisma.state.create({
             data: { name: estado }
         });
-        console.log(`✅ Estado creado: ${estado}`);
     }
 
     // Buscar si ya existe el municipio
@@ -121,7 +106,6 @@ async function getOrCreateLocation(estado: string, municipio: string, localidad:
                 stateId: state.id
             }
         });
-        console.log(`✅ Municipio creado: ${municipality.name} en ${estado}`);
     }
 
     // Buscar si ya existe la localidad
@@ -133,7 +117,6 @@ async function getOrCreateLocation(estado: string, municipio: string, localidad:
     });
 
     if (!location) {
-        console.log(`⚠️ Localidad no encontrada: ${localidad} en ${municipality.name}. Creando nueva localidad.`);
         try {
             location = await prisma.location.create({
                 data: { 
@@ -142,9 +125,7 @@ async function getOrCreateLocation(estado: string, municipio: string, localidad:
                     routeId: routeId
                 }
             });
-            console.log(`✅ Localidad creada: ${localidad} en ${municipality.name}`);
         } catch (error) {
-            console.log(`⚠️ Error al crear localidad: ${error}. Buscando localidad existente.`);
             // Si falla la creación, buscar la localidad que ya existe
             location = await prisma.location.findFirst({
                 where: { 
@@ -158,34 +139,28 @@ async function getOrCreateLocation(estado: string, municipio: string, localidad:
             }
         }
     } else {
-        console.log(`✅ Localidad encontrada: ${localidad} en ${municipality.name}`);
     }
 
     return location;
 }
 
 export const seedLeads = async (routeId: string, routeName: string, excelFileName: string) => {
-    console.log(`🔍 Extrayendo líderes del Excel para la ruta: ${routeName}`);
     
     const leadsData = extractLeadsData(excelFileName, routeName);
     
-    console.log(`📊 Total de líderes extraídos del Excel: ${leadsData.length}`);
     
     
            // Tomar todos los líderes extraídos del Excel (sin filtrar por ruta)
        const routeLeads = leadsData;
 
-       console.log(`📊 Encontrados ${routeLeads.length} líderes del Excel (todos para la ruta "${routeName}")`);
-       console.log(`📋 Total de líderes activos extraídos: ${routeLeads.length}`);
-       console.log(`🔍 Lista de líderes activos:`);
-       routeLeads.forEach((lead, index) => {
+       
+       /* routeLeads.forEach((lead, index) => {
            console.log(`  ${index + 1}. ${lead.nombre} ${lead.apellidos} - Estado: ${lead.activo}`);
-       });
+       }); */
     
            // Continuar con el proceso completo
     
     for (const lead of routeLeads) {
-        console.log(`📝 Procesando líder: ${JSON.stringify(lead)}`);
         
         // Obtener o crear la localidad para este líder
         const location = await getOrCreateLocation(
@@ -231,7 +206,6 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
             type: 'LEAD',
         };
 
-        console.log(`📝 Creando líder: ${lead.nombre} ${lead.apellidos} con dirección en ${lead.localidad}`);
         
         const createdEmployee = await prisma.employee.create({
             data: employeeData,
@@ -277,8 +251,6 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
             }
         }
 
-        console.log(`✅ Líder creado: ${createdEmployee.personalData?.fullName} con ${createdEmployee.personalData?.addresses?.length || 0} direcciones`);
-        console.log(`📍 Dirección: ${lead.calle} ${lead.numero}, ${lead.localidad}, ${lead.municipio}, ${lead.estado}`);
     };
 }
 

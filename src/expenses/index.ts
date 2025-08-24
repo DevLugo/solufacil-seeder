@@ -55,8 +55,6 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     leadAssignedAt: Date;
 }, routeId: string, leadMapping?: { [oldId: string]: string }) => {
     const batches = chunkArray(data, 1000);
-    console.log('====TOKA ACCOUNT====saveExpensesOnDB', tokaAccountId);
-    console.log('====CONNECT ACCOUNT====saveExpensesOnDB', connectAccountId);
     
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
     let employeeIdsMap: { [key: string]: string } = {};
@@ -70,10 +68,8 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
         const transactionPromises = batch.map(item => {
             let accountId;
             if(item.accountType === "GASTO BANCO" && item.description === "TOKA"){
-                console.log('====TOKA====', item.description, tokaAccountId);
                 accountId = tokaAccountId;
             }else if(item.accountType === "GASTO BANCO" && item.description === "CONNECT"){
-                console.log('====GASOLINA====', item.description, connectAccountId);
                 accountId = connectAccountId;
             }
             else if (item.accountType === 'GASTO BANCO') {
@@ -88,7 +84,6 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                 console.log('NO HAY ACCOUNT ID', item);
 
             if(item.amount === undefined){
-                console.log("NO HAY AMOUNT", item);
                 return;
             }
             //console.log('ROUTE ID', routeId);
@@ -115,7 +110,6 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                     },
                     expenseSource: (() => {
                         if (item.description === "GASOLINA" || item.description === "TOKA") {
-                            console.log('====GASOLINE22222====', item.description);
                             return "GASOLINE";
                         }
                         if (item.description === "CONNECT") return "TRAVEL_EXPENSES";
@@ -146,22 +140,16 @@ export const seedExpenses = async (accountId: string, bankAccountId: string, tok
     leadName: string;
     leadAssignedAt: Date;
 }, excelFileName: string, routeId: string, leadMapping?: { [oldId: string]: string }) => {
-    console.log("SEEDING EXPENSES--------");
     const loanData = extractExpensesData(excelFileName);
     
     if(accountId){
-        console.log('====TOKA ACCOUNT====seedExpenses', tokaAccountId);
-        console.log('====CONNECT ACCOUNT====seedExpenses', connectAccountId);
         await saveExpensesOnDB(loanData, accountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, routeId, leadMapping);
-        console.log('Expenses seeded');
         //PRINT TOTAL EXPENSES AND TOTAL SUM OF EXPENSES FROM DB
         const totalExpenses = await prisma.transaction.count({
             where: {
                 type: 'EXPENSE',
             }
         });
-        console.log('Total expenses', totalExpenses);
-
         const totalSumOfExpenses = await prisma.transaction.aggregate({
             _sum: {
                 amount: true,

@@ -57,6 +57,28 @@ function askQuestion(question) {
         });
     });
 }
+async function getOrCreateConnectAccount() {
+    const existingConnectAccount = await exports.prisma.account.findFirst({
+        where: {
+            type: 'TRAVEL_EXPENSES',
+            routeId: null // Cuenta bancaria compartida no está asociada a una ruta específica
+        }
+    });
+    if (existingConnectAccount) {
+        console.log('✅ Cuenta de gastos de viaje encontrada y reutilizada:', existingConnectAccount.name);
+        return existingConnectAccount;
+    }
+    const newConnectAccount = await exports.prisma.account.create({
+        data: {
+            name: 'Cuenta de gastos de viaje',
+            type: 'TRAVEL_EXPENSES',
+            amount: "0",
+            routeId: null // No asociada a una ruta específica
+        }
+    });
+    console.log('✅ Nueva cuenta de gastos de viaje creada:', newConnectAccount.name);
+    return newConnectAccount;
+}
 async function getOrCreateTokaAccount() {
     const existingTokaAccount = await exports.prisma.account.findFirst({
         where: {
@@ -139,14 +161,12 @@ async function createLeadMapping(routeId, excelFileName, routeName) {
     // Extraer datos del Excel
     const leadsData = (0, leads_1.extractLeadsData)(excelFileName, routeName);
     console.log(`📊 Total de leads extraídos del Excel: ${leadsData.length}`);
-    console.log(`📋 Primeros 5 leads del Excel:`, leadsData.slice(0, 5).map(l => ({ oldId: l.oldId, nombre: l.nombre, apellidos: l.apellidos })));
     // Obtener todos los empleados de la ruta
     const employees = await exports.prisma.employee.findMany({
         where: { routesId: routeId },
         include: { personalData: true }
     });
     console.log(`👥 Total de empleados en la ruta: ${employees.length}`);
-    console.log(`📋 Primeros 5 empleados:`, employees.slice(0, 5).map(e => ({ id: e.id, oldId: e.oldId, fullName: e.personalData?.fullName })));
     // Crear mapeo de oldId a realId
     const leadMapping = {};
     for (const excelLead of leadsData) {
@@ -156,14 +176,12 @@ async function createLeadMapping(routeId, excelFileName, routeName) {
             emp.personalData?.fullName === `${excelLead.nombre} ${excelLead.apellidos}`);
         if (employee) {
             leadMapping[oldId] = employee.id;
-            console.log(`✅ Mapeo creado: ${oldId} -> ${employee.id} (${employee.personalData?.fullName})`);
         }
         else {
             console.log(`⚠️ No se encontró empleado para: ${excelLead.nombre} ${excelLead.apellidos} con oldId: ${oldId}`);
         }
     }
     console.log(`📊 Total de mapeos creados: ${Object.keys(leadMapping).length}`);
-    console.log(`📋 Claves del mapeo:`, Object.keys(leadMapping));
     return leadMapping;
 }
 async function main() {
@@ -188,6 +206,7 @@ async function main() {
         // Obtener o crear la cuenta bancaria compartida
         const sharedBankAccount = await getOrCreateSharedBankAccount();
         const tokaAccount = await getOrCreateTokaAccount();
+        const connectAccount = await getOrCreateConnectAccount();
         // Crear la ruta y su cuenta de efectivo específica
         const routeWithCashAccount = await exports.prisma.route.create({
             data: {
@@ -210,6 +229,7 @@ async function main() {
             const cashAccountId = routeWithCashAccount.accounts[0].id;
             const bankAccountId = sharedBankAccount.id;
             const tokaAccountId = tokaAccount.id;
+            const connectAccountId = connectAccount.id;
             console.log(`💰 Cuenta de efectivo: ${cashAccountId}`);
             console.log(`🏦 Cuenta bancaria compartida: ${bankAccountId}`);
             // Obtener los datos de snapshot de la ruta
@@ -217,9 +237,18 @@ async function main() {
             await (0, leads_1.seedLeads)(routeWithCashAccount.id, routeName, excelFileName);
             // Crear mapeo de leads usando el Excel
             const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
-            await (0, expenses_1.seedExpenses)(cashAccountId, bankAccountId, tokaAccountId, snapshotData, excelFileName, routeId, leadMapping);
+            console.log('🔄 ========== INICIANDO SEED EXPENSES ==========');
+            await (0, expenses_1.seedExpenses)(cashAccountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, excelFileName, routeId, leadMapping);
+            console.log('✅ SEED EXPENSES COMPLETADO');
+            console.log('🔄 ========== INICIANDO SEED LOANS ==========');
+            console.log('🔄 ⚠️  ATENCIÓN: seedLoans es ASÍNCRONO');
+            console.log('🔄 ⚠️  Si se cierra antes del reporte final, hay un problema');
             await (0, loan_1.seedLoans)(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
+            console.log('✅ SEED LOANS COMPLETADO');
+            console.log('✅ ⚠️  IMPORTANTE: seedLoans terminó, pero saveDataToDB puede seguir ejecutándose');
+            console.log('🔄 ========== INICIANDO SEED NOMINA ==========');
             await (0, nomina_1.seedNomina)(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
+            console.log('✅ SEED NOMINA COMPLETADO');
             //await seedPayments(route2.id);
             //TODO: save comision and earned amount on payments
             console.log('✅ Datos guardados en la base de datos');
@@ -244,6 +273,10 @@ async function main() {
             }
             console.log('Total Annual Balance 2023:', totalAnnualBalance23);
             console.log('Total Annual Balance with Reinvest 2023:', totalAnnualBalanceWithReinvest23);
+            console.log('🎉 ========== PROCESO COMPLETADO EXITOSAMENTE ==========');
+            console.log('🎉 ⚠️  ATENCIÓN: main() está por terminar');
+            console.log('🎉 ⚠️  Si saveDataToDB sigue ejecutándose, se cortará aquí');
+            console.log('🎉 ⚠️  El .finally() se ejecutará inmediatamente después');
             return yearResume;
         }
         else {
@@ -254,10 +287,4 @@ async function main() {
         console.error('❌ Error durante la ejecución:', error);
     }
 }
-main()
-    .catch(e => {
-    console.error(e);
-})
-    .finally(async () => {
-    await exports.prisma.$disconnect();
-});
+main();

@@ -146,7 +146,6 @@ async function createLeadMapping(routeId: string, excelFileName: string, routeNa
     // Extraer datos del Excel
     const leadsData = extractLeadsData(excelFileName, routeName);
     console.log(`📊 Total de leads extraídos del Excel: ${leadsData.length}`);
-    console.log(`📋 Primeros 5 leads del Excel:`, leadsData.slice(0, 5).map(l => ({ oldId: l.oldId, nombre: l.nombre, apellidos: l.apellidos })));
     
     // Obtener todos los empleados de la ruta
     const employees = await prisma.employee.findMany({
@@ -154,7 +153,6 @@ async function createLeadMapping(routeId: string, excelFileName: string, routeNa
         include: { personalData: true }
     });
     console.log(`👥 Total de empleados en la ruta: ${employees.length}`);
-    console.log(`📋 Primeros 5 empleados:`, employees.slice(0, 5).map(e => ({ id: e.id, oldId: e.oldId, fullName: e.personalData?.fullName })));
     
     // Crear mapeo de oldId a realId
     const leadMapping: { [oldId: string]: string } = {};
@@ -170,14 +168,12 @@ async function createLeadMapping(routeId: string, excelFileName: string, routeNa
         
         if (employee) {
             leadMapping[oldId] = employee.id;
-            console.log(`✅ Mapeo creado: ${oldId} -> ${employee.id} (${employee.personalData?.fullName})`);
         } else {
             console.log(`⚠️ No se encontró empleado para: ${excelLead.nombre} ${excelLead.apellidos} con oldId: ${oldId}`);
         }
     }
     
     console.log(`📊 Total de mapeos creados: ${Object.keys(leadMapping).length}`);
-    console.log(`📋 Claves del mapeo:`, Object.keys(leadMapping));
     
     return leadMapping;
 }
@@ -211,8 +207,6 @@ async function main() {
         const sharedBankAccount = await getOrCreateSharedBankAccount();
         const tokaAccount = await getOrCreateTokaAccount();
         const connectAccount = await getOrCreateConnectAccount();
-        console.log('====CONNECT ACCOUNT====', connectAccount);
-        console.log('====TOKA ACCOUNT====', tokaAccount);
 
 
         // Crear la ruta y su cuenta de efectivo específica
@@ -256,8 +250,11 @@ async function main() {
             console.log('✅ SEED EXPENSES COMPLETADO');
             
             console.log('🔄 ========== INICIANDO SEED LOANS ==========');
+            console.log('🔄 ⚠️  ATENCIÓN: seedLoans es ASÍNCRONO');
+            console.log('🔄 ⚠️  Si se cierra antes del reporte final, hay un problema');
             await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
             console.log('✅ SEED LOANS COMPLETADO');
+            console.log('✅ ⚠️  IMPORTANTE: seedLoans terminó, pero saveDataToDB puede seguir ejecutándose');
             
             console.log('🔄 ========== INICIANDO SEED NOMINA ==========');
             await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
@@ -302,6 +299,11 @@ async function main() {
             console.log('Total Annual Balance 2023:', totalAnnualBalance23);
             console.log('Total Annual Balance with Reinvest 2023:', totalAnnualBalanceWithReinvest23);
 
+            console.log('🎉 ========== PROCESO COMPLETADO EXITOSAMENTE ==========');
+            console.log('🎉 ⚠️  ATENCIÓN: main() está por terminar');
+            console.log('🎉 ⚠️  Si saveDataToDB sigue ejecutándose, se cortará aquí');
+            console.log('🎉 ⚠️  El .finally() se ejecutará inmediatamente después');
+            
             return yearResume;
         } else {
             console.error('❌ Error: No se pudo crear la cuenta de efectivo para la ruta');
@@ -313,12 +315,4 @@ async function main() {
 }
 
 main()
-    .catch(e => {
-        console.error('❌ Error en main():', e);
-    })
-    .finally(async () => {
-        console.log('🔌 ========== CERRANDO CONEXIÓN PRISMA ==========');
-        console.log('🔌 Ejecutando prisma.$disconnect()...');
-        await prisma.$disconnect();
-        console.log('🔌 Conexión Prisma cerrada');
-    });
+    

@@ -37,7 +37,7 @@ const extractExpensesData = (excelFileName) => {
     });
     return loansData;
 };
-const saveExpensesOnDB = async (data, cashAcountId, bankAccountId, tokaAccountId, snapshotData, routeId, leadMapping) => {
+const saveExpensesOnDB = async (data, cashAcountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, routeId, leadMapping) => {
     const batches = (0, utils_1.chunkArray)(data, 1000);
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
     let employeeIdsMap = {};
@@ -53,6 +53,9 @@ const saveExpensesOnDB = async (data, cashAcountId, bankAccountId, tokaAccountId
             if (item.accountType === "GASTO BANCO" && item.description === "TOKA") {
                 accountId = tokaAccountId;
             }
+            else if (item.accountType === "GASTO BANCO" && item.description === "CONNECT") {
+                accountId = connectAccountId;
+            }
             else if (item.accountType === 'GASTO BANCO') {
                 accountId = bankAccountId;
             }
@@ -65,10 +68,9 @@ const saveExpensesOnDB = async (data, cashAcountId, bankAccountId, tokaAccountId
             if (!accountId)
                 console.log('NO HAY ACCOUNT ID', item);
             if (item.amount === undefined) {
-                console.log("NO HAY AMOUNT", item);
                 return;
             }
-            console.log('ROUTE ID', routeId);
+            //console.log('ROUTE ID', routeId);
             return standaloneApp_1.prisma.transaction.create({
                 data: {
                     amount: item.amount.toString(),
@@ -91,14 +93,17 @@ const saveExpensesOnDB = async (data, cashAcountId, bankAccountId, tokaAccountId
                         }
                     },
                     expenseSource: (() => {
+                        if (item.description === "GASOLINA" || item.description === "TOKA") {
+                            return "GASOLINE";
+                        }
+                        if (item.description === "CONNECT")
+                            return "TRAVEL_EXPENSES";
                         if (item.accountType === "COMISION")
                             return "LOAN_PAYMENT_COMISSION";
                         if (item.accountType === "GASTO BANCO")
                             return "BANK_EXPENSE";
                         if (item.accountType === "GASTO SOCIO")
                             return "EMPLOYEE_EXPENSE";
-                        if (item.description === "GASOLINA" || item.accountType === "GASOLINA")
-                            return "GASOLINE";
                         /* if (item.description === "VIATICOS") return "VIATIC"; */
                         /* if (item.description === "SUELDO") return "EXTERNAL_SALARY"; */
                         return "GENERAL_EXPENSE";
@@ -111,19 +116,16 @@ const saveExpensesOnDB = async (data, cashAcountId, bankAccountId, tokaAccountId
         await standaloneApp_1.prisma.$transaction(cleanedData);
     }
 };
-const seedExpenses = async (accountId, bankAccountId, tokaAccountId, snapshotData, excelFileName, routeId, leadMapping) => {
-    console.log("SEEDING EXPENSES--------");
+const seedExpenses = async (accountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, excelFileName, routeId, leadMapping) => {
     const loanData = extractExpensesData(excelFileName);
     if (accountId) {
-        await saveExpensesOnDB(loanData, accountId, bankAccountId, tokaAccountId, snapshotData, routeId, leadMapping);
-        console.log('Expenses seeded');
+        await saveExpensesOnDB(loanData, accountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, routeId, leadMapping);
         //PRINT TOTAL EXPENSES AND TOTAL SUM OF EXPENSES FROM DB
         const totalExpenses = await standaloneApp_1.prisma.transaction.count({
             where: {
                 type: 'EXPENSE',
             }
         });
-        console.log('Total expenses', totalExpenses);
         const totalSumOfExpenses = await standaloneApp_1.prisma.transaction.aggregate({
             _sum: {
                 amount: true,
