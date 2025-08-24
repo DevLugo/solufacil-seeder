@@ -9,6 +9,9 @@ const expensesColumnsRelationship: ExcelExpensesRow = {
     'A': 'fullName',
     'B': 'date',
     'C': 'amount',
+    'D': 'description',
+    'E': 'leadId',
+    'F': 'accountType',
 };
 
 const extractNominaData = (excelFileName: string) => {

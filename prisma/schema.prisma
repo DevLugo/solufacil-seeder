@@ -129,16 +129,17 @@ model Borrower {
 }
 
 model PersonalData {
-  id         String    @id @default(cuid())
-  fullName   String    @default("")
-  clientCode String?   @unique
-  phones     Phone[]   @relation("Phone_personalData")
-  addresses  Address[] @relation("Address_personalData")
-  birthDate  DateTime?
-  createdAt  DateTime? @default(now())
-  updatedAt  DateTime?
-  employee   Employee? @relation("Employee_personalData")
-  borrower   Borrower? @relation("Borrower_personalData")
+  id                String    @id @default(cuid())
+  fullName          String    @default("")
+  clientCode        String?   @unique
+  phones            Phone[]   @relation("Phone_personalData")
+  addresses         Address[] @relation("Address_personalData")
+  birthDate         DateTime?
+  createdAt         DateTime? @default(now())
+  updatedAt         DateTime?
+  employee          Employee? @relation("Employee_personalData")
+  borrower          Borrower? @relation("Borrower_personalData")
+  loansAsCollateral Loan[]    @relation("Loan_collaterals")
 }
 
 model Loan {
@@ -154,6 +155,7 @@ model Loan {
   profitAmount           Decimal?            @postgresql.Decimal(10, 2)
   avalName               String              @default("")
   avalPhone              String              @default("")
+  collaterals            PersonalData[]      @relation("Loan_collaterals")
   grantor                Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])
   grantorId              String?             @map("grantor")
   transactions           Transaction[]       @relation("Transaction_loan")

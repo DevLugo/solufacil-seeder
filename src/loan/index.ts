@@ -6,6 +6,125 @@ import { Payments } from "../payments/types";
 import { extractPaymentData } from "../payments";
 const xlsx = require('xlsx');
 
+// Cache en memoria para reutilizar borrowers
+interface BorrowerCache {
+    [fullName: string]: {
+        borrowerId: string;
+        personalDataId: string;
+        fullName: string;
+    };
+}
+
+// Cache global para mantener borrowers únicos
+let borrowerCache: BorrowerCache = {};
+
+// Función para obtener o crear borrower basándose en el fullName
+const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Promise<{ borrowerId: string; personalDataId: string }> => {
+    const normalizedName = fullName.trim();
+    
+    // Verificar si ya existe en el cache
+    if (borrowerCache[normalizedName]) {
+        console.log(`🔄 Reutilizando borrower existente: "${normalizedName}" -> ID: ${borrowerCache[normalizedName].borrowerId}`);
+        return {
+            borrowerId: borrowerCache[normalizedName].borrowerId,
+            personalDataId: borrowerCache[normalizedName].personalDataId
+        };
+    }
+    
+    // Buscar si ya existe en la base de datos
+    const existingPersonalData = await prisma.personalData.findFirst({
+        where: { fullName: normalizedName },
+        include: {
+            borrower: true
+        }
+    });
+    
+    if (existingPersonalData) {
+        if (existingPersonalData.borrower) {
+            // Ya existe un borrower con este personalData
+            const result = {
+                borrowerId: existingPersonalData.borrower.id,
+                personalDataId: existingPersonalData.id
+            };
+            
+            // Agregar al cache
+            borrowerCache[normalizedName] = {
+                borrowerId: result.borrowerId,
+                personalDataId: result.personalDataId,
+                fullName: normalizedName
+            };
+            
+            console.log(`🔄 Reutilizando borrower existente en BD: "${normalizedName}" -> ID: ${result.borrowerId}`);
+            return result;
+        } else {
+            // Existe personalData pero no borrower, crear borrower
+            const newBorrower = await prisma.borrower.create({
+                data: {
+                    personalData: {
+                        connect: { id: existingPersonalData.id }
+                    }
+                }
+            });
+            
+            const result = {
+                borrowerId: newBorrower.id,
+                personalDataId: existingPersonalData.id
+            };
+            
+            // Agregar al cache
+            borrowerCache[normalizedName] = {
+                borrowerId: result.borrowerId,
+                personalDataId: result.personalDataId,
+                fullName: normalizedName
+            };
+            
+            console.log(`🆕 Creado nuevo borrower para personalData existente: "${normalizedName}" -> ID: ${result.borrowerId}`);
+            return result;
+        }
+    }
+    
+    // No existe, crear todo desde cero
+    const newPersonalData = await prisma.personalData.create({
+        data: {
+            fullName: normalizedName,
+            phones: titularPhone && titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(titularPhone) ? {
+                create: {
+                    number: titularPhone ? String(titularPhone) : ""
+                }
+            } : undefined,
+        }
+    });
+    
+    const newBorrower = await prisma.borrower.create({
+        data: {
+            personalData: {
+                connect: { id: newPersonalData.id }
+            }
+        }
+    });
+    
+    const result = {
+        borrowerId: newBorrower.id,
+        personalDataId: newPersonalData.id
+    };
+    
+    // Agregar al cache
+    borrowerCache[normalizedName] = {
+        borrowerId: result.borrowerId,
+        personalDataId: result.personalDataId,
+        fullName: normalizedName
+    };
+    
+    console.log(`🆕 Creado nuevo borrower y personalData: "${normalizedName}" -> Borrower ID: ${result.borrowerId}, PersonalData ID: ${result.personalDataId}`);
+    return result;
+};
+
+// Función para limpiar el cache de borrowers
+const clearBorrowerCache = () => {
+    borrowerCache = {};
+    console.log('🧹 Cache de borrowers limpiado');
+};
+
 const excelColumnsRelationship: ExcelLoanRelationship = {
     'A': 'id',
     'B': 'fullName',
@@ -125,9 +244,10 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('🚀 LÍNEA 3: Después de la función de prueba');
     console.log('🚀 LÍNEA 4: Antes de limpiar cache de avales');
     
-    // Limpiar cache de avales al inicio del proceso
+    // Limpiar cache de avales y borrowers al inicio del proceso
     clearAvalCache();
-    console.log('🧹 Cache de avales limpiado');
+    clearBorrowerCache();
+    console.log('🧹 Cache de avales y borrowers limpiado');
     
     // Pre-crear todos los avales únicos
     await createAllUniqueAvales(loans);
@@ -222,119 +342,21 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             if(!specificLeadId){
                 // Log removido para limpiar la consola
                 loansWithoutLead++; 
-                return;
+                return null; // Retornar null para filtrar después
             }
 
-            // Verificar que el lead existe en el mapeo
-            if (!specificLeadId) {
-                // Log removido para limpiar la consola
-                loansWithoutLead++;
-                return;
-            }
+            // Verificar que el lead existe en el mapeo (redundante, ya verificado arriba)
+            // if (!specificLeadId) {
+            //     loansWithoutLead++;
+            //     return null;
+            // }
 
-            // Log removido para limpiar la consola
+            // Obtener los pagos para este préstamo
             const paymentsForLoan = groupedPayments[item.id] || [];
-            //console.log('item.id', item);
-            if(item.id === 7709){
-                console.log('AKA ANDAMOS2', item);
-                console.log('----cleanedData-----', {
-                    data: {
-                        borrower: {
-                            create: {
-                                personalData: {
-                                    create: {
-                                        fullName: String(item.fullName),
-                                        phones: item.titularPhone && item.titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(item.titularPhone) ? {
-                                            create: {
-                                                number: item.titularPhone ? String(item.titularPhone) : ""
-                                            }
-                                        }: undefined,
-                                    }
-                                },
-                            },
-                        },
-                        loantype: {
-                            connect: {
-                                id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
-                            }
-                        },
-                        lead: {
-                            connect: {
-                                id: specificLeadId,
-                            }
-                        },
-                        oldId: item.id.toString(),
-                        status: determineLoanStatus(item, loans),
-                        badDebtDate: item.badDebtDate,
-                        snapshotRouteId: snapshotData.routeId,
-                        snapshotRouteName: snapshotData.routeName,
-                        snapshotLeadId: specificLeadId,
-                        snapshotLeadAssignedAt: snapshotData.leadAssignedAt,
-                        payments: {
-                            create: groupedPayments[item.id]?.map(payment => {
-                                const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
-                                
-                                const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
-                                const rate = loanType.rate ? Number(loanType.rate) : 0;
-                                const totalAmountToPay = Number(item.requestedAmount) + baseProfit;
-                                const profitAmount = payment.amount * baseProfit / (totalAmountToPay);
-                                
-                                if(["1873"].includes(item.id.toString())){
-                                    // Logs comentados removidos
-                                }
-    
-                                return {
-                                    oldLoanId: String(item.id),
-                                    receivedAt: payment.paymentDate,
-                                    amount: payment.amount,
-                                    
-                                    //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
-                                    //returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
-                                    type: payment.type,
-                                    transactions: {
-                                        create: {
-                                            profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
-                                            returnToCapital:item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0:payment.amount - profitAmount,
-                                            amount: payment.amount,
-                                            date: payment.paymentDate,
-                                            destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount: cashAccountId,
-                                            type: 'INCOME',
-                                            routeId: snapshotData.routeId,
-                                            incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT':'CASH_LOAN_PAYMENT',
-                                            // Agregar solo el campo de snapshot que existe en Transaction
-                                            snapshotLeadId: specificLeadId, // Usar el ID del lead específico
-                                        }
-                                    }
-                                }
-                            })
-    
-                        },
-                        signDate: item.givedDate,
-                        amountGived: item.givedAmount.toString(),
-                        requestedAmount: item.requestedAmount.toString(),
-                        avalName: item.avalName,
-                        avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
-                        finishedDate: item.finishedDate,
-                        profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
-                        transactions: {
-                            create: [{
-                                amount: item.givedAmount,
-                                date: item.givedDate,
-                                sourceAccountId: cashAccountId,
-                                type: 'EXPENSE',
-                                expenseSource: 'LOAN_GRANTED',
-                                routeId: snapshotData.routeId,
-                                // Agregar solo el campo de snapshot que existe en Transaction
-                                /* snapshotLeadId: specificLeadId, // Usar el ID del lead específico */
-                            }]
-                        }
-                    }
-                }
-                );
-            }
-            processedLoans++;
             
-
+            // Obtener o crear borrower usando el cache (evita duplicados)
+            const { borrowerId, personalDataId } = await getOrCreateBorrower(item.fullName, item.titularPhone);
+            
             // Obtener ID del aval (ya pre-creado)
             const avalPersonalDataId = await getOrAssignAvalId(item.avalName);
             
@@ -374,50 +396,68 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     });
                 }
             }
-
-            // SOLUCIÓN: Verificar si ya existe un PersonalData con este nombre (puede ser un aval)
-            // Si existe, reutilizarlo para evitar duplicados
-            let borrowerPersonalDataId: string | null = null;
             
-            if (item.fullName && item.fullName.trim() !== '') {
-                // Buscar si ya existe un PersonalData con este nombre (puede ser un aval)
-                const existingPersonalData = await prisma.personalData.findFirst({
-                    where: { fullName: item.fullName.trim() }
+            // 🚨 LOG ESPECÍFICO PARA ALMA ROSA CANUL CHAN
+            if (item.fullName && item.fullName.includes('ALMA ROSA CANUL CHAN')) {
+                console.log(`🚨 ALMA ROSA CANUL CHAN como borrower: Usando PersonalData existente ${personalDataId} en lugar de crear duplicado`);
+                console.log(`📋 DETALLES DEL PRÉSTAMO ${item.id}:`);
+                console.log(`   - fullName: "${item.fullName}"`);
+                console.log(`   - avalName: "${item.avalName}"`);
+                console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
+            }
+            
+            processedLoans++;
+            
+            // VERIFICACIÓN EN TIEMPO REAL: Detectar si se está creando un duplicado de ERIKA
+            if (item.avalName && item.avalName.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
+                console.log(`🔍 VERIFICACIÓN EN TIEMPO REAL: ERIKA en préstamo ${item.id} -> ID: ${avalPersonalDataId}`);
+                
+                // VERIFICACIÓN CRÍTICA: Si el fullName del préstamo es igual al avalName
+                if (item.fullName === item.avalName) {
+                    console.log(`🚨 PROBLEMA CRÍTICO: El préstamo ${item.id} tiene el mismo nombre que su aval: "${item.fullName}"`);
+                    console.log(`🚨 Esto causará la creación de un registro duplicado en PersonalData!`);
+                }
+                
+                // LOG DETALLADO: Mostrar información del préstamo
+                console.log(`📋 DETALLES DEL PRÉSTAMO ${item.id}:`);
+                console.log(`   - fullName: "${item.fullName}"`);
+                console.log(`   - avalName: "${item.avalName}"`);
+                console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
+                
+                // Verificar cuántos registros de ERIKA existen en este momento
+                const erikaCount = await prisma.personalData.count({
+                    where: { fullName: { contains: 'ERIKA JUSSET PAREDES CHAVEZ' } }
                 });
                 
-                if (existingPersonalData) {
-                    borrowerPersonalDataId = existingPersonalData.id;
-                    if (item.fullName.includes('ERIKA JUSSET PAREDES CHAVEZ')) {
-                        console.log(`🔄 ERIKA como borrower: Usando PersonalData existente ${existingPersonalData.id} en lugar de crear duplicado`);
-                    }
-                    // 🚨 LOG ESPECÍFICO PARA ALMA ROSA CANUL CHAN
-                    if (item.fullName.includes('ALMA ROSA CANUL CHAN')) {
-                        console.log(`🚨 ALMA ROSA CANUL CHAN como borrower: Usando PersonalData existente ${existingPersonalData.id} en lugar de crear duplicado`);
-                        console.log(`📋 DETALLES DEL PRÉSTAMO ${item.id}:`);
-                        console.log(`   - fullName: "${item.fullName}"`);
-                        console.log(`   - avalName: "${item.avalName}"`);
-                        console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
-                    }
+                if (erikaCount > 1) {
+                    console.log(`🚨 ALERTA CRÍTICA: ERIKA tiene ${erikaCount} registros durante la creación del préstamo ${item.id}!`);
+                    
+                    // Mostrar todos los registros de ERIKA
+                    const erikaRecords = await prisma.personalData.findMany({
+                        where: { fullName: { contains: 'ERIKA JUSSET PAREDES CHAVEZ' } },
+                        select: { id: true, fullName: true, createdAt: true }
+                    });
+                    
+                    console.log('📊 Registros de ERIKA encontrados:');
+                    erikaRecords.forEach((record, index) => {
+                        console.log(`   ${index + 1}. ID: ${record.id} | Creado: ${record.createdAt}`);
+                    });
                 }
+            }
+            
+            // 🚨 LOG ESPECÍFICO PARA ALMA ROSA CANUL CHAN
+            if (item.fullName && item.fullName.includes('ALMA ROSA CANUL CHAN')) {
+                console.log(`🚨 ALMA ROSA CANUL CHAN como borrower: Usando PersonalData existente ${personalDataId} en lugar de crear duplicado`);
+                console.log(`📋 DETALLES DEL PRÉSTAMO ${item.id}:`);
+                console.log(`   - fullName: "${item.fullName}"`);
+                console.log(`   - avalName: "${item.avalName}"`);
+                console.log(`   - Son iguales: ${item.fullName === item.avalName ? 'SÍ' : 'NO'}`);
             }
             
             const createdLoan = await prisma.loan.create({
                 data: {
                     borrower: {
-                        create: {
-                            personalData: borrowerPersonalDataId ? {
-                                connect: { id: borrowerPersonalDataId }
-                            } : {
-                                create: {
-                                    fullName: String(item.fullName),
-                                    phones: item.titularPhone && item.titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(item.titularPhone) ? {
-                                        create: {
-                                            number: item.titularPhone ? String(item.titularPhone) : ""
-                                        }
-                                    }: undefined,
-                                }
-                            },
-                        },
+                        connect: { id: borrowerId }
                     },
                     loantype: {
                         connect: {
@@ -523,6 +563,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         if (cleanedData.length > 0) {
             try {
                 await Promise.all(cleanedData);
+                console.log(`✅ Batch procesado: ${processedLoans} préstamos. Cache de borrowers: ${Object.keys(borrowerCache).length} entradas`);
             } catch (error) {
                 console.log('error saving loans 244', error);
             }
@@ -611,7 +652,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         if(!specificLeadId){
             // Log removido para limpiar la consola
             loansWithoutLead++;
-            return;
+            continue; // Usar continue en lugar de return para continuar con el siguiente préstamo
         }
 
         // Obtener ID del aval para préstamo renovado (ya pre-creado)
@@ -795,6 +836,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     };
 
     //OBTEN TODOS LOS LOANS QUE TIENEN UN PREVIOUS LOAN Y MARCA EL PREVIOUS LOAN COMO RENOVATED
+    console.log('\n🔄 ========== PROCESANDO PRÉSTAMOS CON PREVIOUS LOAN ==========');
     const loansWithPreviousLoan = await prisma.loan.findMany({
         where: {
             previousLoanId: {
@@ -834,6 +876,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     }
     
     // Paso 0: Normalizar finishedDate con la fecha del último pago para todos los préstamos que ya tienen finishedDate
+    console.log('\n🔄 ========== NORMALIZANDO FINISHED DATE ==========');
     {
         const loansWithFinish = await prisma.loan.findMany({
             where: {
@@ -1287,6 +1330,18 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     // LOG FINAL: Verificar que la función se completó
     console.log('\n🚀 ========== FUNCIÓN saveDataToDB COMPLETADA ==========');
     console.log('🚀 Esta línea debe aparecer AL FINAL de todo el proceso');
+    
+    // REPORTE FINAL DEL CACHE DE BORROWERS
+    console.log('\n📊 ========== REPORTE FINAL DEL CACHE DE BORROWERS ==========');
+    console.log('🔍 Estado del cache antes del reporte final...');
+    console.log(`📈 Total de borrowers únicos en cache: ${Object.keys(borrowerCache).length}`);
+    if (Object.keys(borrowerCache).length > 0) {
+        console.log('📋 Detalle de borrowers en cache:');
+        Object.entries(borrowerCache).forEach(([fullName, data], index) => {
+            console.log(`   ${index + 1}. "${fullName}" -> Borrower ID: ${data.borrowerId}, PersonalData ID: ${data.personalDataId}`);
+        });
+    }
+    console.log('📊 ============================================================\n');
 
 };
 

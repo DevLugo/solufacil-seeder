@@ -251,9 +251,18 @@ async function main() {
             // Crear mapeo de leads usando el Excel
             const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
             
+            console.log('🔄 ========== INICIANDO SEED EXPENSES ==========');
             await seedExpenses(cashAccountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, excelFileName,routeId, leadMapping);
+            console.log('✅ SEED EXPENSES COMPLETADO');
+            
+            console.log('🔄 ========== INICIANDO SEED LOANS ==========');
             await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
+            console.log('✅ SEED LOANS COMPLETADO');
+            
+            console.log('🔄 ========== INICIANDO SEED NOMINA ==========');
             await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
+            console.log('✅ SEED NOMINA COMPLETADO');
+            
             //await seedPayments(route2.id);
             //TODO: save comision and earned amount on payments
             console.log('✅ Datos guardados en la base de datos');
@@ -305,8 +314,11 @@ async function main() {
 
 main()
     .catch(e => {
-        console.error(e);
+        console.error('❌ Error en main():', e);
     })
     .finally(async () => {
+        console.log('🔌 ========== CERRANDO CONEXIÓN PRISMA ==========');
+        console.log('🔌 Ejecutando prisma.$disconnect()...');
         await prisma.$disconnect();
+        console.log('🔌 Conexión Prisma cerrada');
     });
