@@ -5,7 +5,11 @@ import { ExcelLoanRelationship, ExcelRow, Loan } from "./types";
 import { Payments } from "../payments/types";
 import { extractPaymentData } from "../payments";
 const xlsx = require('xlsx');
+// Cache global para mantener borrowers únicos
+let borrowerCache: BorrowerCache = {};
 
+// NUEVO: Locks para evitar race conditions
+const borrowerLocks: Map<string, Promise<{ borrowerId: string; personalDataId: string }>> = new Map();
 // Cache en memoria para reutilizar borrowers
 interface BorrowerCache {
     [fullName: string]: {
@@ -16,108 +20,140 @@ interface BorrowerCache {
 }
 
 // Cache global para mantener borrowers únicos
-let borrowerCache: BorrowerCache = {};
-
-// Función para obtener o crear borrower basándose en el fullName
 const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Promise<{ borrowerId: string; personalDataId: string }> => {
+    if (!fullName || fullName.trim() === '') {
+        throw new Error('❌ Nombre vacío, no se puede crear borrower');
+    }
+    
     const normalizedName = fullName.trim();
     
-    // Verificar si ya existe en el cache
+    // PASO 1: Verificar si ya hay una promesa en progreso para este nombre
+    if (borrowerLocks.has(normalizedName)) {
+        console.log(`🔒 Esperando lock existente para: "${normalizedName}"`);
+        try {
+            // Esperar a que la promesa existente termine
+            const result = await borrowerLocks.get(normalizedName)!;
+            console.log(`🔓 Lock liberado, usando resultado para: "${normalizedName}" -> ID: ${result.borrowerId}`);
+            return result;
+        } catch (error) {
+            console.error(`❌ Error esperando lock para "${normalizedName}":`, error);
+            // Si falla, intentar de nuevo
+            borrowerLocks.delete(normalizedName);
+        }
+    }
+    
+    // PASO 2: Verificar cache antes de crear lock
     if (borrowerCache[normalizedName]) {
-        console.log(`🔄 Reutilizando borrower existente: "${normalizedName}" -> ID: ${borrowerCache[normalizedName].borrowerId}`);
+        console.log(`🔄 Reutilizando borrower del cache (sin lock): "${normalizedName}" -> ID: ${borrowerCache[normalizedName].borrowerId}`);
         return {
             borrowerId: borrowerCache[normalizedName].borrowerId,
             personalDataId: borrowerCache[normalizedName].personalDataId
         };
     }
     
-    // Buscar si ya existe en la base de datos
-    const existingPersonalData = await prisma.personalData.findFirst({
-        where: { fullName: normalizedName },
-        include: {
-            borrower: true
-        }
-    });
-    
-    if (existingPersonalData) {
-        if (existingPersonalData.borrower) {
-            // Ya existe un borrower con este personalData
-            const result = {
-                borrowerId: existingPersonalData.borrower.id,
-                personalDataId: existingPersonalData.id
-            };
+    // PASO 3: Crear una nueva promesa con lock
+    const lockPromise = (async () => {
+        try {
+            // Doble verificación después de obtener el lock
+            if (borrowerCache[normalizedName]) {
+                console.log(`🔄 Reutilizando borrower del cache (con lock): "${normalizedName}" -> ID: ${borrowerCache[normalizedName].borrowerId}`);
+                return {
+                    borrowerId: borrowerCache[normalizedName].borrowerId,
+                    personalDataId: borrowerCache[normalizedName].personalDataId
+                };
+            }
             
-            // Agregar al cache
-            borrowerCache[normalizedName] = {
-                borrowerId: result.borrowerId,
-                personalDataId: result.personalDataId,
-                fullName: normalizedName
-            };
+            // Buscar en base de datos
+            const existingPersonalData = await prisma.personalData.findFirst({
+                where: { fullName: normalizedName },
+                include: { borrower: true }
+            });
             
-            console.log(`🔄 Reutilizando borrower existente en BD: "${normalizedName}" -> ID: ${result.borrowerId}`);
-            return result;
-        } else {
-            // Existe personalData pero no borrower, crear borrower
+            if (existingPersonalData) {
+                let borrowerId: string;
+                let personalDataId = existingPersonalData.id;
+                
+                if (existingPersonalData.borrower) {
+                    borrowerId = existingPersonalData.borrower.id;
+                    console.log(`🔄 Reutilizando borrower existente en BD: "${normalizedName}" -> ID: ${borrowerId}`);
+                } else {
+                    // Crear borrower para personalData existente
+                    const newBorrower = await prisma.borrower.create({
+                        data: {
+                            personalData: {
+                                connect: { id: personalDataId }
+                            }
+                        }
+                    });
+                    borrowerId = newBorrower.id;
+                    console.log(`🆕 Creado nuevo borrower para personalData existente: "${normalizedName}" -> ID: ${borrowerId}`);
+                }
+                
+                // Actualizar cache
+                const result = {
+                    borrowerId: borrowerId,
+                    personalDataId: personalDataId,
+                    fullName: normalizedName
+                };
+                borrowerCache[normalizedName] = result;
+                
+                return {
+                    borrowerId: borrowerId,
+                    personalDataId: personalDataId
+                };
+            }
+            
+            // Crear nuevo personalData y borrower
+            const newPersonalData = await prisma.personalData.create({
+                data: {
+                    fullName: normalizedName,
+                    phones: titularPhone && titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(titularPhone) ? {
+                        create: {
+                            number: String(titularPhone)
+                        }
+                    } : undefined,
+                }
+            });
+            
             const newBorrower = await prisma.borrower.create({
                 data: {
                     personalData: {
-                        connect: { id: existingPersonalData.id }
+                        connect: { id: newPersonalData.id }
                     }
                 }
             });
             
+            // Actualizar cache
             const result = {
                 borrowerId: newBorrower.id,
-                personalDataId: existingPersonalData.id
-            };
-            
-            // Agregar al cache
-            borrowerCache[normalizedName] = {
-                borrowerId: result.borrowerId,
-                personalDataId: result.personalDataId,
+                personalDataId: newPersonalData.id,
                 fullName: normalizedName
             };
+            borrowerCache[normalizedName] = result;
             
-            console.log(`🆕 Creado nuevo borrower para personalData existente: "${normalizedName}" -> ID: ${result.borrowerId}`);
-            return result;
+            console.log(`🆕 Creado nuevo borrower y personalData: "${normalizedName}" -> Borrower ID: ${newBorrower.id}`);
+            
+            return {
+                borrowerId: newBorrower.id,
+                personalDataId: newPersonalData.id
+            };
+            
+        } finally {
+            // Limpiar el lock después de un tiempo
+            setTimeout(() => {
+                borrowerLocks.delete(normalizedName);
+            }, 100);
         }
-    }
+    })();
     
-    // No existe, crear todo desde cero
-    const newPersonalData = await prisma.personalData.create({
-        data: {
-            fullName: normalizedName,
-            phones: titularPhone && titularPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(titularPhone) ? {
-                create: {
-                    number: titularPhone ? String(titularPhone) : ""
-                }
-            } : undefined,
-        }
-    });
+    // Guardar la promesa en el lock
+    borrowerLocks.set(normalizedName, lockPromise);
     
-    const newBorrower = await prisma.borrower.create({
-        data: {
-            personalData: {
-                connect: { id: newPersonalData.id }
-            }
-        }
-    });
-    
-    const result = {
-        borrowerId: newBorrower.id,
-        personalDataId: newPersonalData.id
-    };
-    
-    // Agregar al cache
-    borrowerCache[normalizedName] = {
-        borrowerId: result.borrowerId,
-        personalDataId: result.personalDataId,
-        fullName: normalizedName
-    };
-    
-    console.log(`🆕 Creado nuevo borrower y personalData: "${normalizedName}" -> Borrower ID: ${result.borrowerId}, PersonalData ID: ${result.personalDataId}`);
-    return result;
+    // Retornar el resultado de la promesa
+    return lockPromise;
 };
+// Función para obtener o crear borrower basándose en el fullName
+
 
 // Función para limpiar el cache de borrowers
 const clearBorrowerCache = () => {
@@ -318,7 +354,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     };
 
     // Dividir los datos en lotes
-    const batches = chunkArray(notRenovatedLoans, 1000);
+    const batches = chunkArray(notRenovatedLoans, 100);
     console.log('📊 Total de batches:', batches.length);
     console.log('📋 Elementos en el primer batch:', batches[0]?.length);
     console.log('🔍 Último elemento del primer batch:', batches[0]?.[batches[0].length - 1]);
@@ -342,7 +378,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             if(!specificLeadId){
                 // Log removido para limpiar la consola
                 loansWithoutLead++; 
-                return null; // Retornar null para filtrar después
+                return Promise.resolve(null); // Return resolved null to filter later
             }
 
             // Verificar que el lead existe en el mapeo (redundante, ya verificado arriba)
@@ -518,8 +554,6 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     signDate: item.givedDate,
                     amountGived: item.givedAmount.toString(),
                     requestedAmount: item.requestedAmount.toString(),
-                    avalName: item.avalName, // Mantener por compatibilidad temporal
-                    avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                     finishedDate: item.finishedDate,
                     profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
                     transactions: {
@@ -558,16 +592,21 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
             return createdLoan;
         });
-        const cleanedData = (await Promise.all(transactionPromises)).filter(item => item !== undefined);
-        
-        if (cleanedData.length > 0) {
-            try {
-                await Promise.all(cleanedData);
-                console.log(`✅ Batch procesado: ${processedLoans} préstamos. Cache de borrowers: ${Object.keys(borrowerCache).length} entradas`);
-            } catch (error) {
-                console.log('error saving loans 244', error);
-            }
-        }
+        const results = await Promise.all(transactionPromises);
+const validLoans = results.filter(item => item !== null && item !== undefined);
+
+// Línea 512 - Verificar si hay préstamos válidos
+if (validLoans.length > 0) {
+    try {
+        // Ya no necesitamos hacer Promise.all otra vez porque validLoans ya contiene los resultados
+        console.log(`✅ Batch procesado: ${validLoans.length} préstamos válidos creados. Cache de borrowers: ${Object.keys(borrowerCache).length} entradas`);
+        loansProcessed += validLoans.length;
+    } catch (error) {
+        console.log('error saving loans 244', error);
+    }
+} else {
+    console.log(`⚠️ Batch sin préstamos válidos para procesar`);
+}
     };
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
@@ -743,14 +782,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     }
                 },
                 status: determineLoanStatus(item, loans),
-                avalName: item.avalName, // Mantener por compatibilidad temporal
-                avalPhone: item.avalPhone && ["NA", "N/A", undefined, "undefined"].includes(item.avalPhone) ? "" : (item.avalPhone ? item.avalPhone.toString() : ""),
                 finishedDate: item.finishedDate,
                 borrower: previousLoan?.borrowerId ? {
                     connect: {
                         id: previousLoan.borrowerId,
                     }
-                } : undefined,
+                } : await (async () => {
+                    // If no previous loan borrower, create/get one for this loan
+                    const { borrowerId } = await getOrCreateBorrower(item.fullName, item.titularPhone);
+                    return { connect: { id: borrowerId } };
+                })(),
                 previousLoan: previousLoan ? {
                     connect: {
                         id: previousLoan.id,
