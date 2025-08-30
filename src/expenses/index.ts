@@ -69,10 +69,12 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     for (const batch of batches) {
         const transactionPromises = batch.map(item => {
             let accountId;
-            if(item.accountType === "GASTO BANCO" && item.description === "TOKA"){
+            if(
+                (item.accountType === "GASTO BANCO" && item.description === "TOKA") 
+                || (item.accountType === "TOKA" && item.description === "GASOLINA")){
                 console.log('====TOKA====', item.description, tokaAccountId);
                 accountId = tokaAccountId;
-            }else if(item.accountType === "GASTO BANCO" && item.description === "CONNECT"){
+            }else if(item.accountType === "GASTO BANCO" && item.description === "CONNECT" || item.description === "CONNECT CONEXION"){
                 console.log('====GASOLINA====', item.description, connectAccountId);
                 accountId = connectAccountId;
             }
@@ -88,7 +90,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                 console.log('NO HAY ACCOUNT ID', item);
 
             if(item.amount === undefined){
-                console.log("NO HAY AMOUNT", item);
+                //console.log("NO HAY AMOUNT", item);
                 return;
             }
             //console.log('ROUTE ID', routeId);
@@ -115,7 +117,6 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                     },
                     expenseSource: (() => {
                         if (item.description === "GASOLINA" || item.description === "TOKA") {
-                            console.log('====GASOLINE22222====', item.description);
                             return "GASOLINE";
                         }
                         if (item.description === "CONNECT") return "TRAVEL_EXPENSES";

@@ -192,13 +192,8 @@ async function main() {
             return;
         }
 
-        // Preguntar al usuario cuál es el nombre del archivo Excel
-        const excelFileName = await askQuestion('¿Cuál es el nombre del archivo Excel? (ej: ruta2.xlsm): ');
-        
-        if (!excelFileName.trim()) {
-            console.error('❌ El nombre del archivo Excel no puede estar vacío');
-            return;
-        }
+        // Generar automáticamente el nombre del archivo Excel basándose en el nombre de la ruta
+        const excelFileName = `${routeName.toLowerCase().replace(/\s+/g, '')}.xlsm`;
 
         console.log(`🚀 Iniciando proceso para la ruta: ${routeName}`);
         console.log(`📊 Usando archivo Excel: ${excelFileName}`);
