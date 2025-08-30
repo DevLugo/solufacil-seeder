@@ -5,6 +5,40 @@ import { chunkArray, convertExcelDate } from "../utils";
 import { ExcelExpensesRow, Expense } from "./types";
 const xlsx = require('xlsx');
 
+// Función para validar si un gasto ya existe en la base de datos
+const checkExpenseDuplicate = async (expense: Expense): Promise<boolean> => {
+    try {
+        // Solo validar duplicados para gastos de junio de 2024 hacia atrás
+        const june2024 = new Date('2024-06-01');
+        if (expense.date >= june2024) {
+            console.log(`✅ GASTO RECIENTE (${expense.date.toISOString().split('T')[0]}): No se valida duplicado para gastos posteriores a junio 2024`);
+            return false; // No validar duplicados para gastos recientes
+        }
+
+        // Buscar gastos existentes con la misma descripción, fecha y monto
+        const existingExpense = await prisma.transaction.findFirst({
+            where: {
+                description: String(expense.description),
+                date: expense.date,
+                amount: expense.amount.toString(),
+                type: 'EXPENSE'
+            }
+        });
+
+        if (existingExpense) {
+            console.log(`⚠️ DUPLICADO ENCONTRADO: Gasto "${expense.description}" con fecha ${expense.date} y monto ${expense.amount} ya existe`);
+            console.log(`   Gasto existente ID: ${existingExpense.id}, Ruta: ${existingExpense.routeId}`);
+            console.log(`   Este gasto se OMITIRÁ para evitar duplicados`);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error('❌ Error verificando duplicado de gasto:', error);
+        return false; // En caso de error, permitir la inserción
+    }
+};
+
 const expensesColumnsRelationship: ExcelExpensesRow = {
     'B': 'fullName',
     'C': 'date',
@@ -58,6 +92,15 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
     console.log('====TOKA ACCOUNT====saveExpensesOnDB', tokaAccountId);
     console.log('====CONNECT ACCOUNT====saveExpensesOnDB', connectAccountId);
     
+    // LOG DE VALIDACIÓN DE DUPLICADOS
+    console.log('\n🔍 ========== VALIDACIÓN DE DUPLICADOS DE GASTOS ==========');
+    console.log(`🔍 Implementando validación de duplicados para la ruta: "${snapshotData.routeName}"`);
+    console.log(`🔍 Criterios de validación: descripción + fecha + monto`);
+    console.log(`🔍 ⚠️ NO se valida la ruta porque el mismo gasto puede existir en diferentes rutas (error en Excel)`);
+    console.log(`🔍 📅 SOLO se validan duplicados para gastos de junio 2024 hacia atrás`);
+    console.log(`🔍 📅 Gastos posteriores a junio 2024 NO se validan por duplicados`);
+    console.log('🔍 =========================================================\n');
+    
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
     let employeeIdsMap: { [key: string]: string } = {};
     if (leadMapping) {
@@ -66,8 +109,31 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
         employeeIdsMap = await getEmployeeIdsMap();
     }
     
-    for (const batch of batches) {
-        const transactionPromises = batch.map(item => {
+    let expensesProcessed = 0;
+    let expensesSkippedDuplicates = 0;
+    
+    for (const [batchIndex, batch] of batches.entries()) {
+        console.log(`\n🔄 ========== PROCESANDO BATCH DE GASTOS ${batchIndex + 1}/${batches.length} ==========`);
+        console.log(`📋 Elementos en este batch: ${batch.length}`);
+        const transactionPromises: any[] = [];
+        
+        for (const item of batch) {
+            // VALIDACIÓN DE DUPLICADOS: Verificar si el gasto ya existe
+            console.log(`🔍 Verificando duplicado para gasto: ${item.description} - ${item.date} - ${item.amount}`);
+            const isDuplicate = await checkExpenseDuplicate(item);
+            if (isDuplicate) {
+                console.log(`⏭️ OMITIENDO GASTO DUPLICADO: ${item.description} - ${item.date} - ${item.amount}`);
+                continue; // Omitir este gasto
+            } else {
+                // Verificar si es un gasto reciente que no se valida por duplicados
+                const june2024 = new Date('2024-06-01');
+                if (item.date >= june2024) {
+                    console.log(`✅ GASTO RECIENTE: ${item.description} - ${item.date} - ${item.amount} (procesando sin validación de duplicados)`);
+                } else {
+                    console.log(`✅ GASTO ÚNICO: ${item.description} - ${item.date} - ${item.amount} (procesando...)`);
+                }
+            }
+
             let accountId;
             if(
                 (item.accountType === "GASTO BANCO" && item.description === "TOKA") 
@@ -91,10 +157,10 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
 
             if(item.amount === undefined){
                 //console.log("NO HAY AMOUNT", item);
-                return;
+                continue;
             }
             //console.log('ROUTE ID', routeId);
-            return prisma.transaction.create({
+            transactionPromises.push(prisma.transaction.create({
                 data: {
                     amount: item.amount.toString(),
                     date: item.date,
@@ -131,11 +197,33 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
 
                     // snapshotLeadId no existe en Transaction, se omite
                 }
-            })});
-        const cleanedData = transactionPromises.filter(e => e !== undefined);
-
-        await prisma.$transaction(cleanedData);
+            }));
+        }
+        if (transactionPromises.length > 0) {
+            await prisma.$transaction(transactionPromises);
+            expensesProcessed += transactionPromises.length;
+        } else {
+            console.log(`⚠️ BATCH SIN GASTOS VÁLIDOS: Todos los gastos fueron duplicados`);
+        }
+        
+        // Actualizar contadores
+        const batchSkipped = batch.length - transactionPromises.length;
+        expensesSkippedDuplicates += batchSkipped;
+        
+        // RESUMEN DEL BATCH
+        if (batchSkipped > 0) {
+            console.log(`📊 RESUMEN DEL BATCH: ${batch.length} total, ${transactionPromises.length} procesados, ${batchSkipped} omitidos (duplicados)`);
+        }
+        console.log(`✅ BATCH DE GASTOS ${batchIndex + 1}/${batches.length} COMPLETADO`);
+        console.log('🔄 ================================================\n');
     }
+    
+    // RESUMEN FINAL DEL PROCESAMIENTO DE GASTOS
+    console.log('\n📊 ========== RESUMEN FINAL DEL PROCESAMIENTO DE GASTOS ==========');
+    console.log(`✅ Total de gastos procesados exitosamente: ${expensesProcessed}`);
+    console.log(`⏭️ Total de gastos omitidos por duplicados: ${expensesSkippedDuplicates}`);
+    console.log(`📈 Total de gastos únicos creados: ${expensesProcessed}`);
+    console.log('📊 ============================================================\n');
 };
 
 export const seedExpenses = async (accountId: string, bankAccountId: string, tokaAccountId: string, connectAccountId: string, snapshotData: {
@@ -149,6 +237,12 @@ export const seedExpenses = async (accountId: string, bankAccountId: string, tok
 }, excelFileName: string, routeId: string, leadMapping?: { [oldId: string]: string }) => {
     console.log("SEEDING EXPENSES--------");
     const loanData = extractExpensesData(excelFileName);
+    
+    // LOG DE PROCESAMIENTO DE GASTOS
+    console.log('\n🔄 ========== PROCESAMIENTO DE GASTOS ==========');
+    console.log(`🔄 Total de gastos a procesar: ${loanData.length}`);
+    console.log(`🔄 Tamaño de batch: 1000 gastos por lote`);
+    console.log('🔄 ===========================================\n');
     
     if(accountId){
         console.log('====TOKA ACCOUNT====seedExpenses', tokaAccountId);
