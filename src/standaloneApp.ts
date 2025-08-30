@@ -182,8 +182,151 @@ async function createLeadMapping(routeId: string, excelFileName: string, routeNa
     return leadMapping;
 }
 
+// Función para procesar una ruta específica
+async function processRoute(routeName?: string) {
+    // Si no se proporciona el nombre de la ruta, preguntarlo
+    if (!routeName) {
+        routeName = await askQuestion('¿Cuál es el nombre de la ruta? (ej: Ruta 2, Ruta 3, etc.): ');
+        
+        if (!routeName.trim()) {
+            console.error('❌ El nombre de la ruta no puede estar vacío');
+            return;
+        }
+    }
+
+    // Generar automáticamente el nombre del archivo Excel basándose en el nombre de la ruta
+    const excelFileName = `${routeName.toLowerCase().replace(/\s+/g, '')}.xlsm`;
+
+    console.log(`🚀 Iniciando proceso para la ruta: ${routeName}`);
+    console.log(`📊 Usando archivo Excel: ${excelFileName}`);
+
+    // Obtener o crear las cuentas compartidas (solo si no existen o si se reseteó la DB)
+    const sharedBankAccount = await getOrCreateSharedBankAccount();
+    const tokaAccount = await getOrCreateTokaAccount();
+    const connectAccount = await getOrCreateConnectAccount();
+    console.log('====CONNECT ACCOUNT====', connectAccount);
+    console.log('====TOKA ACCOUNT====', tokaAccount);
+
+    // Crear la ruta y su cuenta de efectivo específica
+    const routeWithCashAccount = await prisma.route.create({
+        data: {
+            name: routeName,
+            accounts: {
+                create: {
+                    name: `${routeName} Caja`,
+                    type: 'EMPLOYEE_CASH_FUND',
+                    amount: "0",
+                }
+            }
+        },
+        include: {
+            accounts: true,
+        }
+    });
+
+    console.log(`✅ Ruta "${routeName}" creada con cuenta de efectivo`);
+    const routeId = routeWithCashAccount.id;
+    if (routeWithCashAccount.accounts?.[0]?.id) {
+        const cashAccountId = routeWithCashAccount.accounts[0].id;
+        const bankAccountId = sharedBankAccount.id;
+        const tokaAccountId = tokaAccount.id;
+        const connectAccountId = connectAccount.id;
+
+        console.log(`💰 Cuenta de efectivo: ${cashAccountId}`);
+        console.log(`🏦 Cuenta bancaria compartida: ${bankAccountId}`);
+
+        // Obtener los datos de snapshot de la ruta
+        const snapshotData = await getRouteSnapshotData(routeWithCashAccount.id);
+
+        await seedLeads(routeWithCashAccount.id, routeName, excelFileName);
+        
+        // Crear mapeo de leads usando el Excel
+        const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
+        
+        console.log('🔄 ========== INICIANDO SEED EXPENSES ==========');
+        await seedExpenses(cashAccountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, excelFileName,routeId, leadMapping);
+        console.log('✅ SEED EXPENSES COMPLETADO');
+        
+        console.log('🔄 ========== INICIANDO SEED LOANS ==========');
+        await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
+        console.log('✅ SEED LOANS COMPLETADO');
+        
+        console.log('🔄 ========== INICIANDO SEED NOMINA ==========');
+        await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
+        console.log('✅ SEED NOMINA COMPLETADO');
+        
+        //await seedPayments(route2.id);
+        //TODO: save comision and earned amount on payments
+        console.log('✅ Datos guardados en la base de datos');
+
+        const yearResume = await getYearResume(
+            cashAccountId,
+            bankAccountId,
+            2025
+        );
+        
+        console.table(yearResume);
+        //console.table(monthResume);
+        let totalAnnualBalance = 0;
+        let totalAnnualBalanceWithReinvest = 0;
+
+        for (const month of Object.keys(yearResume)) {
+            totalAnnualBalance += yearResume[month].balance || 0;
+            totalAnnualBalanceWithReinvest += yearResume[month].balanceWithReinvest || 0;
+        }
+
+        console.log('Total Annual Balance 2024:', totalAnnualBalance);
+        console.log('Total Annual Balance with Reinvest 2024:', totalAnnualBalanceWithReinvest);
+
+        const yearResume2023 = await getYearResume(
+            cashAccountId,
+            bankAccountId,
+            2023
+        );
+        console.table(yearResume2023);
+        let totalAnnualBalance23 = 0;
+        let totalAnnualBalanceWithReinvest23 = 0;
+        for (const month of Object.keys(yearResume2023)) {
+            totalAnnualBalance23 += yearResume2023[month].balance || 0;
+            totalAnnualBalanceWithReinvest23 += yearResume2023[month].balanceWithReinvest || 0;
+        }
+
+        console.log('Total Annual Balance 2023:', totalAnnualBalance23);
+        console.log('Total Annual Balance with Reinvest 2023:', totalAnnualBalanceWithReinvest23);
+
+        console.log('✅ Proceso completado para la ruta:', routeName);
+        
+        // Preguntar si quiere procesar otra ruta
+        const anotherRoute = await askQuestion('¿Quieres procesar otra ruta? (s/n): ');
+        const shouldProcessAnother = anotherRoute.toLowerCase() === 's' || anotherRoute.toLowerCase() === 'si' || anotherRoute.toLowerCase() === 'y' || anotherRoute.toLowerCase() === 'yes';
+        
+        if (shouldProcessAnother) {
+            console.log('\n🔄 ========== PROCESANDO NUEVA RUTA ==========\n');
+            return await processRoute(); // Llamada recursiva para procesar otra ruta (sin parámetro)
+        } else {
+            console.log('🏁 Proceso finalizado. ¡Hasta luego!');
+            return yearResume;
+        }
+    } else {
+        console.error('❌ Error: No se pudo crear la cuenta de efectivo para la ruta');
+    }
+}
+
 async function main() {
     try {
+        // Preguntar al usuario si quiere reiniciar la base de datos
+        const resetDb = await askQuestion('¿Quieres reiniciar la base de datos? (s/n): ');
+        const shouldResetDb = resetDb.toLowerCase() === 's' || resetDb.toLowerCase() === 'si' || resetDb.toLowerCase() === 'y' || resetDb.toLowerCase() === 'yes';
+        
+        if (shouldResetDb) {
+            console.log('🔄 Reiniciando base de datos...');
+            await cleanUpDb();
+            await seedAccounts();
+            console.log('✅ Base de datos reiniciada');
+        } else {
+            console.log('⏭️ Continuando con la base de datos existente...');
+        }
+
         // Preguntar al usuario cuál es la ruta
         const routeName = await askQuestion('¿Cuál es el nombre de la ruta? (ej: Ruta 2, Ruta 3, etc.): ');
         
@@ -198,109 +341,8 @@ async function main() {
         console.log(`🚀 Iniciando proceso para la ruta: ${routeName}`);
         console.log(`📊 Usando archivo Excel: ${excelFileName}`);
 
-        //TODO: handle the bak deposits
-        await cleanUpDb();
-        await seedAccounts();
-
-        // Obtener o crear la cuenta bancaria compartida
-        const sharedBankAccount = await getOrCreateSharedBankAccount();
-        const tokaAccount = await getOrCreateTokaAccount();
-        const connectAccount = await getOrCreateConnectAccount();
-        console.log('====CONNECT ACCOUNT====', connectAccount);
-        console.log('====TOKA ACCOUNT====', tokaAccount);
-
-
-        // Crear la ruta y su cuenta de efectivo específica
-        const routeWithCashAccount = await prisma.route.create({
-            data: {
-                name: routeName,
-                accounts: {
-                    create: {
-                        name: `${routeName} Caja`,
-                        type: 'EMPLOYEE_CASH_FUND',
-                        amount: "0",
-                    }
-                }
-            },
-            include: {
-                accounts: true,
-            }
-        });
-
-        console.log(`✅ Ruta "${routeName}" creada con cuenta de efectivo`);
-        const routeId = routeWithCashAccount.id;
-        if (routeWithCashAccount.accounts?.[0]?.id) {
-            const cashAccountId = routeWithCashAccount.accounts[0].id;
-            const bankAccountId = sharedBankAccount.id;
-            const tokaAccountId = tokaAccount.id;
-            const connectAccountId = connectAccount.id;
-
-            console.log(`💰 Cuenta de efectivo: ${cashAccountId}`);
-            console.log(`🏦 Cuenta bancaria compartida: ${bankAccountId}`);
-
-            // Obtener los datos de snapshot de la ruta
-            const snapshotData = await getRouteSnapshotData(routeWithCashAccount.id);
-
-            await seedLeads(routeWithCashAccount.id, routeName, excelFileName);
-            
-            // Crear mapeo de leads usando el Excel
-            const leadMapping = await createLeadMapping(routeWithCashAccount.id, excelFileName, routeName);
-            
-            console.log('🔄 ========== INICIANDO SEED EXPENSES ==========');
-            await seedExpenses(cashAccountId, bankAccountId, tokaAccountId, connectAccountId, snapshotData, excelFileName,routeId, leadMapping);
-            console.log('✅ SEED EXPENSES COMPLETADO');
-            
-            console.log('🔄 ========== INICIANDO SEED LOANS ==========');
-            await seedLoans(cashAccountId, bankAccountId, snapshotData, excelFileName, leadMapping);
-            console.log('✅ SEED LOANS COMPLETADO');
-            
-            console.log('🔄 ========== INICIANDO SEED NOMINA ==========');
-            await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
-            console.log('✅ SEED NOMINA COMPLETADO');
-            
-            //await seedPayments(route2.id);
-            //TODO: save comision and earned amount on payments
-            console.log('✅ Datos guardados en la base de datos');
-
-            const yearResume = await getYearResume(
-                cashAccountId,
-                bankAccountId,
-                2025
-            );
-            
-            console.table(yearResume);
-            //console.table(monthResume);
-            let totalAnnualBalance = 0;
-            let totalAnnualBalanceWithReinvest = 0;
-
-            for (const month of Object.keys(yearResume)) {
-                totalAnnualBalance += yearResume[month].balance || 0;
-                totalAnnualBalanceWithReinvest += yearResume[month].balanceWithReinvest || 0;
-            }
-
-            console.log('Total Annual Balance 2024:', totalAnnualBalance);
-            console.log('Total Annual Balance with Reinvest 2024:', totalAnnualBalanceWithReinvest);
-
-            const yearResume2023 = await getYearResume(
-                cashAccountId,
-                bankAccountId,
-                2023
-            );
-            console.table(yearResume2023);
-            let totalAnnualBalance23 = 0;
-            let totalAnnualBalanceWithReinvest23 = 0;
-            for (const month of Object.keys(yearResume2023)) {
-                totalAnnualBalance23 += yearResume2023[month].balance || 0;
-                totalAnnualBalanceWithReinvest23 += yearResume2023[month].balanceWithReinvest || 0;
-            }
-
-            console.log('Total Annual Balance 2023:', totalAnnualBalance23);
-            console.log('Total Annual Balance with Reinvest 2023:', totalAnnualBalanceWithReinvest23);
-
-            return yearResume;
-        } else {
-            console.error('❌ Error: No se pudo crear la cuenta de efectivo para la ruta');
-        }
+        // Iniciar el procesamiento de rutas
+        await processRoute(routeName);
         
     } catch (error) {
         console.error('❌ Error durante la ejecución:', error);

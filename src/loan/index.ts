@@ -227,6 +227,98 @@ const extractLoanData = (routeName: string, excelFileName: string) => {
     return filteredLoans;
 };
 
+// Función para validar si un préstamo ya existe en la base de datos
+const checkLoanDuplicate = async (loan: Loan, routeName: string): Promise<boolean> => {
+    try {
+        // Buscar préstamos existentes con el mismo nombre de cliente, fecha de otorgado y cantidad otorgada
+        // NO validamos la ruta porque el mismo crédito puede existir en diferentes rutas (error en Excel)
+        const existingLoan = await prisma.loan.findFirst({
+            where: {
+                borrower: {
+                    personalData: {
+                        fullName: loan.fullName
+                    }
+                },
+                signDate: loan.givedDate,
+                amountGived: loan.givedAmount.toString()
+                // Removido: snapshotRouteName: routeName
+            },
+            include: {
+                borrower: {
+                    include: {
+                        personalData: true
+                    }
+                }
+            }
+        });
+
+        if (existingLoan) {
+            console.log(`⚠️ DUPLICADO ENCONTRADO: Cliente "${loan.fullName}" con fecha ${loan.givedDate} y monto ${loan.givedAmount} ya existe`);
+            console.log(`   Préstamo existente ID: ${existingLoan.id}, oldId: ${existingLoan.oldId}, Ruta: ${existingLoan.snapshotRouteName}`);
+            console.log(`   Ruta actual: "${routeName}" - Este préstamo se OMITIRÁ para evitar duplicados`);
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error('❌ Error verificando duplicado:', error);
+        return false; // En caso de error, permitir la inserción
+    }
+};
+
+// Función para generar oldId único con prefijo de ruta
+const generateUniqueOldId = (routeName: string, originalId: string | number): string => {
+    return `${routeName}-${originalId}`;
+};
+
+// Función para buscar un préstamo previo por su ID original (sin prefijo de ruta)
+const findPreviousLoan = async (previousLoanId: string | number, routeName: string): Promise<any> => {
+    try {
+        // Primero intentar buscar por el oldId con prefijo de ruta
+        const loanWithPrefix = await prisma.loan.findUnique({
+            where: {
+                oldId: generateUniqueOldId(routeName, previousLoanId),
+            },
+            include: {
+                payments: {
+                    include: {
+                        transactions: true,
+                    }
+                },
+            }
+        });
+
+        if (loanWithPrefix) {
+            return loanWithPrefix;
+        }
+
+        // Si no se encuentra, buscar por el ID original sin prefijo (para compatibilidad con préstamos existentes)
+        const loanWithoutPrefix = await prisma.loan.findFirst({
+            where: {
+                oldId: String(previousLoanId),
+            },
+            include: {
+                payments: {
+                    include: {
+                        transactions: true,
+                    }
+                },
+            }
+        });
+
+        if (loanWithoutPrefix) {
+            console.log(`⚠️ PRÉSTAMO PREVIO ENCONTRADO SIN PREFIJO DE RUTA: ${previousLoanId} -> ${loanWithoutPrefix.id}`);
+            return loanWithoutPrefix;
+        }
+
+        console.log(`❌ PRÉSTAMO PREVIO NO ENCONTRADO: ${previousLoanId}`);
+        return null;
+    } catch (error) {
+        console.error('❌ Error buscando préstamo previo:', error);
+        return null;
+    }
+};
+
 const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: string, payments: Payments[], snapshotData: {
     routeId: string;
     routeName: string;
@@ -294,6 +386,19 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
     console.log('notRenovatedLoans', notRenovatedLoans.length);
     console.log('renovatedLoans', renovatedLoans.length);
+
+    // LOG DE VALIDACIÓN DE DUPLICADOS
+    console.log('\n🔍 ========== VALIDACIÓN DE DUPLICADOS ==========');
+    console.log(`🔍 Implementando validación de duplicados para la ruta: "${snapshotData.routeName}"`);
+    console.log(`🔍 Criterios de validación: nombre del cliente + fecha de otorgado + cantidad otorgada`);
+    console.log(`🔍 ⚠️ NO se valida la ruta porque el mismo crédito puede existir en diferentes rutas (error en Excel)`);
+    console.log(`🔍 Los oldId ahora incluyen prefijo de ruta: "${snapshotData.routeName}-{id}"`);
+    console.log('🔍 ==============================================\n');
+
+    // LOG DE PROCESAMIENTO DE PRÉSTAMOS RENOVADOS
+    console.log('\n🔄 ========== PROCESAMIENTO DE PRÉSTAMOS RENOVADOS ==========');
+    console.log(`🔄 Total de préstamos renovados a procesar: ${renovatedLoans.length}`);
+    console.log('🔄 =========================================================\n');
 
     // LOG DESPUÉS DE VARIABLES: Verificar que llegamos a esta línea
     console.log('🚀 LÍNEA 6: Después de declarar variables de préstamos');
@@ -370,13 +475,19 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('📋 Elementos en el último batch:', batches[batches.length - 1]?.length);
     console.log('🔍 Último elemento del último batch:', batches[batches.length - 1]?.[batches[batches.length - 1].length - 1]);
     console.log('❌ Préstamos sin pagos:', notRenovatedLoans.filter(item => !groupedPayments[item.id]).map(item => item.id));
+    console.log(`🔍 Total de préstamos a procesar: ${notRenovatedLoans.length}`);
+    console.log(`🔍 Tamaño de batch: 100 préstamos por lote`);
     // Log removido para limpiar la consola
 
 
     let loansWithoutLead = 0;
     let loansProcessed = 0;
-    for (const batch of batches) {
+    let loansSkippedDuplicates = 0;
+    let renovatedLoansProcessed = 0;
+    for (const [batchIndex, batch] of batches.entries()) {
         let processedLoans = 0;
+        console.log(`\n🔄 ========== PROCESANDO BATCH ${batchIndex + 1}/${batches.length} ==========`);
+        console.log(`📋 Elementos en este batch: ${batch.length}`);
         const transactionPromises = batch.map(async (item) => {
             /* if (!groupedPayments[item.id]) {
                 return;
@@ -395,6 +506,17 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             //     loansWithoutLead++;
             //     return null;
             // }
+
+            // VALIDACIÓN DE DUPLICADOS: Verificar si el préstamo ya existe
+            console.log(`🔍 Verificando duplicado para préstamo: ${item.id} - ${item.fullName}`);
+            const isDuplicate = await checkLoanDuplicate(item, snapshotData.routeName);
+            if (isDuplicate) {
+                console.log(`⏭️ OMITIENDO PRÉSTAMO DUPLICADO: ${item.id} - ${item.fullName}`);
+                loansSkippedDuplicates++;
+                return Promise.resolve(null); // Omitir este préstamo
+            } else {
+                console.log(`✅ PRÉSTAMO ÚNICO: ${item.id} - ${item.fullName} (procesando...)`);
+            }
 
             // Obtener los pagos para este préstamo
             const paymentsForLoan = groupedPayments[item.id] || [];
@@ -423,7 +545,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             id: specificLeadId,
                         }
                     },
-                    oldId: item.id.toString(),
+                    oldId: generateUniqueOldId(snapshotData.routeName, item.id),
                     status: determineLoanStatus(item, loans),
                     badDebtDate: item.badDebtDate,
                     snapshotRouteId: snapshotData.routeId,
@@ -445,7 +567,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             }
 
                             return {
-                                oldLoanId: String(item.id),
+                                oldLoanId: generateUniqueOldId(snapshotData.routeName, item.id),
                                 receivedAt: payment.paymentDate,
                                 amount: payment.amount,
 
@@ -525,7 +647,24 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         } else {
             console.log(`⚠️ Batch sin préstamos válidos para procesar`);
         }
+
+        // RESUMEN DEL BATCH
+        const batchSkipped = batch.length - validLoans.length;
+        if (batchSkipped > 0) {
+            console.log(`📊 RESUMEN DEL BATCH: ${batch.length} total, ${validLoans.length} procesados, ${batchSkipped} omitidos (duplicados/sin lead)`);
+        }
+        console.log(`✅ BATCH ${batchIndex + 1}/${batches.length} COMPLETADO`);
+        console.log('🔄 ================================================\n');
     };
+
+    // RESUMEN FINAL DEL PROCESAMIENTO DE BATCHES
+    console.log('\n📊 ========== RESUMEN FINAL DEL PROCESAMIENTO ==========');
+    console.log(`✅ Total de préstamos normales procesados: ${loansProcessed}`);
+    console.log(`🔄 Total de préstamos renovados procesados: ${renovatedLoansProcessed}`);
+    console.log(`⏭️ Total de préstamos omitidos por duplicados: ${loansSkippedDuplicates}`);
+    console.log(`⚠️ Total de préstamos sin lead: ${loansWithoutLead}`);
+    console.log(`📈 Total de préstamos únicos creados: ${loansProcessed + renovatedLoansProcessed}`);
+    console.log('📊 ===================================================\n');
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
     const loansFromDb = await prisma.loan.findMany({
@@ -567,23 +706,20 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     });
 
     for (const item of renovatedLoans) {
+        console.log(`🔄 Procesando préstamo renovado: ${item.id} - ${item.fullName} (previousLoanId: ${item.previousLoanId})`);
 
         const existPreviousLoan = item.previousLoanId && loanIdsMap[item.previousLoanId];
         if (!item.previousLoanId) {
+            console.log(`⚠️ Préstamo renovado sin previousLoanId: ${item.id} - ${item.fullName}`);
             continue;
         }
-        const previousLoan = await prisma.loan.findUnique({
-            where: {
-                oldId: String(item.previousLoanId),
-            },
-            include: {
-                payments: {
-                    include: {
-                        transactions: true,
-                    }
-                },
-            }
-        });
+        const previousLoan = await findPreviousLoan(item.previousLoanId, snapshotData.routeName);
+        if (previousLoan) {
+            console.log(`✅ Préstamo previo encontrado: ${item.previousLoanId} -> ${previousLoan.id} (${previousLoan.oldId})`);
+        } else {
+            console.log(`❌ Préstamo previo NO encontrado: ${item.previousLoanId} - ${item.fullName}`);
+            continue; // Omitir este préstamo renovado si no se encuentra el previo
+        }
         if (item.previousLoanId === '5805') {
             /* console.log('====5805===', previousLoan, loanIdsMap); */
         }
@@ -591,8 +727,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
         const rate = loanType.rate ? Number(loanType.rate) : 0;
         const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
-        const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc, payment) => {
-            const transactionProfit = payment.transactions.reduce((transAcc, transaction) => transAcc + (transaction.profitAmount ? Number(transaction.profitAmount) : 0), 0);
+        const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc: number, payment: any) => {
+            const transactionProfit = payment.transactions.reduce((transAcc: number, transaction: any) => transAcc + (transaction.profitAmount ? Number(transaction.profitAmount) : 0), 0);
             return acc + transactionProfit;
         }, 0) || 0;
 
@@ -615,7 +751,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
         const createdRenovatedLoan = await prisma.loan.create({
             data: {
-                oldId: item.id.toString(),
+                oldId: generateUniqueOldId(snapshotData.routeName, item.id),
                 signDate: item.givedDate,
                 amountGived: item.givedAmount.toString(),
                 requestedAmount: item.requestedAmount.toString(),
@@ -665,7 +801,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             // Logs comentados removidos
                         }
                         return {
-                            oldLoanId: String(item.id),
+                            oldLoanId: generateUniqueOldId(snapshotData.routeName, item.id),
                             receivedAt: payment.paymentDate,
                             amount: payment.amount,
                             /* profitAmount: profitAmount,
@@ -723,7 +859,16 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 }
             }
         }
+
+        renovatedLoansProcessed++;
+        console.log(`✅ Préstamo renovado creado exitosamente: ${item.id} - ${item.fullName}`);
     };
+
+    // RESUMEN DE PRÉSTAMOS RENOVADOS
+    console.log('\n📊 ========== RESUMEN DE PRÉSTAMOS RENOVADOS ==========');
+    console.log(`✅ Total de préstamos renovados procesados exitosamente: ${renovatedLoansProcessed}`);
+    console.log(`📈 Total de préstamos renovados únicos creados: ${renovatedLoansProcessed}`);
+    console.log('📊 ===================================================\n');
 
     //OBTEN TODOS LOS LOANS QUE TIENEN UN PREVIOUS LOAN Y MARCA EL PREVIOUS LOAN COMO RENOVATED
     console.log('\n🔄 ========== PROCESANDO PRÉSTAMOS CON PREVIOUS LOAN ==========');
@@ -1220,6 +1365,15 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     // LOG FINAL: Verificar que la función se completó
     console.log('\n🚀 ========== FUNCIÓN saveDataToDB COMPLETADA ==========');
     console.log('🚀 Esta línea debe aparecer AL FINAL de todo el proceso');
+
+    // REPORTE FINAL DE PRÉSTAMOS PROCESADOS
+    console.log('\n📊 ========== REPORTE FINAL DE PRÉSTAMOS PROCESADOS ==========');
+    console.log(`✅ Total de préstamos normales procesados: ${loansProcessed}`);
+    console.log(`🔄 Total de préstamos renovados procesados: ${renovatedLoansProcessed}`);
+    console.log(`⏭️ Total de préstamos omitidos por duplicados: ${loansSkippedDuplicates}`);
+    console.log(`⚠️ Total de préstamos sin lead: ${loansWithoutLead}`);
+    console.log(`📈 Total de préstamos únicos creados: ${loansProcessed + renovatedLoansProcessed}`);
+    console.log('📊 ============================================================\n');
 
     // REPORTE FINAL DEL CACHE DE BORROWERS
     console.log('\n📊 ========== REPORTE FINAL DEL CACHE DE BORROWERS ==========');
