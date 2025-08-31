@@ -8,6 +8,11 @@ const xlsx = require('xlsx');
 // Función para validar si un gasto ya existe en la base de datos
 const checkExpenseDuplicate = async (expense: Expense): Promise<boolean> => {
     try {
+        // Validar que los datos sean válidos antes de proceder
+        if (!expense.description || !expense.date || expense.amount === undefined) {
+            return false; // No validar duplicados para datos incompletos
+        }
+
         // Solo validar duplicados para gastos de junio de 2024 hacia atrás
         const june2024 = new Date('2024-06-01');
         if (expense.date >= june2024) {
@@ -118,19 +123,24 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
         const transactionPromises: any[] = [];
         
         for (const item of batch) {
-            // VALIDACIÓN DE DUPLICADOS: Verificar si el gasto ya existe
-            console.log(`🔍 Verificando duplicado para gasto: ${item.description} - ${item.date} - ${item.amount}`);
-            const isDuplicate = await checkExpenseDuplicate(item);
-            if (isDuplicate) {
-                console.log(`⏭️ OMITIENDO GASTO DUPLICADO: ${item.description} - ${item.date} - ${item.amount}`);
-                continue; // Omitir este gasto
+            // VALIDACIÓN DE DUPLICADOS: Solo verificar si los datos son válidos
+            if (!item.description || !item.date || item.amount === undefined) {
+                console.log(`⚠️ DATOS INCOMPLETOS: description=${item.description}, date=${item.date}, amount=${item.amount} - Omitiendo validación de duplicados`);
+                // Continuar con el procesamiento normal sin validar duplicados
             } else {
-                // Verificar si es un gasto reciente que no se valida por duplicados
-                const june2024 = new Date('2024-06-01');
-                if (item.date >= june2024) {
-                    console.log(`✅ GASTO RECIENTE: ${item.description} - ${item.date} - ${item.amount} (procesando sin validación de duplicados)`);
+                console.log(`🔍 Verificando duplicado para gasto: ${item.description} - ${item.date} - ${item.amount}`);
+                const isDuplicate = await checkExpenseDuplicate(item);
+                if (isDuplicate) {
+                    console.log(`⏭️ OMITIENDO GASTO DUPLICADO: ${item.description} - ${item.date} - ${item.amount}`);
+                    continue; // Omitir este gasto
                 } else {
-                    console.log(`✅ GASTO ÚNICO: ${item.description} - ${item.date} - ${item.amount} (procesando...)`);
+                    // Verificar si es un gasto reciente que no se valida por duplicados
+                    const june2024 = new Date('2024-06-01');
+                    if (item.date >= june2024) {
+                        console.log(`✅ GASTO RECIENTE: ${item.description} - ${item.date} - ${item.amount} (procesando sin validación de duplicados)`);
+                    } else {
+                        console.log(`✅ GASTO ÚNICO: ${item.description} - ${item.date} - ${item.amount} (procesando...)`);
+                    }
                 }
             }
 

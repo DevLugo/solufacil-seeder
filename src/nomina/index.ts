@@ -8,6 +8,11 @@ const xlsx = require('xlsx');
 // Función para validar si un gasto de nómina ya existe en la base de datos
 const checkNominaDuplicate = async (expense: Expense): Promise<boolean> => {
     try {
+        // Validar que los datos sean válidos antes de proceder
+        if (!expense.description || !expense.date || expense.amount === undefined) {
+            return false; // No validar duplicados para datos incompletos
+        }
+
         // Solo validar duplicados para nóminas de junio de 2024 hacia atrás
         const june2024 = new Date('2024-01-01');
         if (expense.date >= june2024) {
@@ -167,19 +172,24 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string, snapshot
         const transactionPromises: any[] = [];
         
         for (const item of batch) {
-            // VALIDACIÓN DE DUPLICADOS: Verificar si la nómina ya existe
-            console.log(`🔍 Verificando duplicado para nómina: ${item.description} - ${item.date} - ${item.amount}`);
-            const isDuplicate = await checkNominaDuplicate(item);
-            if (isDuplicate) {
-                console.log(`⏭️ OMITIENDO NÓMINA DUPLICADA: ${item.description} - ${item.date} - ${item.amount}`);
-                continue; // Omitir esta nómina
+            // VALIDACIÓN DE DUPLICADOS: Solo verificar si los datos son válidos
+            if (!item.description || !item.date || item.amount === undefined) {
+                console.log(`⚠️ DATOS INCOMPLETOS: description=${item.description}, date=${item.date}, amount=${item.amount} - Omitiendo validación de duplicados`);
+                // Continuar con el procesamiento normal sin validar duplicados
             } else {
-                // Verificar si es una nómina reciente que no se valida por duplicados
-                const june2024 = new Date('2024-06-01');
-                if (item.date >= june2024) {
-                    console.log(`✅ NÓMINA RECIENTE: ${item.description} - ${item.date} - ${item.amount} (procesando sin validación de duplicados)`);
+                console.log(`🔍 Verificando duplicado para nómina: ${item.description} - ${item.date} - ${item.amount}`);
+                const isDuplicate = await checkNominaDuplicate(item);
+                if (isDuplicate) {
+                    console.log(`⏭️ OMITIENDO NÓMINA DUPLICADA: ${item.description} - ${item.date} - ${item.amount}`);
+                    continue; // Omitir esta nómina
                 } else {
-                    console.log(`✅ NÓMINA ÚNICA: ${item.description} - ${item.date} - ${item.amount} (procesando...)`);
+                    // Verificar si es una nómina reciente que no se valida por duplicados
+                    const june2024 = new Date('2024-01-01');
+                    if (item.date >= june2024) {
+                        console.log(`✅ NÓMINA RECIENTE: ${item.date} - ${item.amount} (procesando sin validación de duplicados)`);
+                    } else {
+                        console.log(`✅ NÓMINA ÚNICA: ${item.description} - ${item.date} - ${item.amount} (procesando...)`);
+                    }
                 }
             }
 
