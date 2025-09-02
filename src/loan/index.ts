@@ -1135,6 +1135,96 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             console.log(`✅ Denormalizados préstamos: ${denormUpdates.length} (deuda, pago semanal, pagado, pendiente)`);
         }
     }
+    // NUEVO: Detectar y actualizar préstamos pagados al 100% sin finishedDate
+{
+    console.log('\n🔍 ========== DETECTANDO PRÉSTAMOS PAGADOS AL 100% ==========');
+    
+    // Buscar préstamos sin finishedDate pero con pendingAmountStored = 0 o muy cercano a 0
+    const fullyPaidLoansWithoutFinish = await prisma.loan.findMany({
+        where: {
+            snapshotRouteId: snapshotData.routeId,
+            finishedDate: null,
+            OR: [
+                { pendingAmountStored: "0" },
+                { pendingAmountStored: "0.00" },
+                // Considerar también valores muy pequeños (< 1) como pagados
+                {
+                    AND: [
+                        { pendingAmountStored: { not: null } },
+                        { pendingAmountStored: { lt: "1" } },
+                        { pendingAmountStored: { gte: "0" } }
+                    ]
+                }
+            ]
+        },
+        select: {
+            id: true,
+            oldId: true,
+            pendingAmountStored: true,
+            payments: {
+                select: {
+                    receivedAt: true
+                },
+                orderBy: {
+                    receivedAt: 'desc'
+                }
+            }
+        }
+    });
+    
+    console.log(`📊 Préstamos pagados al 100% sin fecha de término: ${fullyPaidLoansWithoutFinish.length}`);
+    
+    if (fullyPaidLoansWithoutFinish.length > 0) {
+        // Preparar actualizaciones
+        const updatePromises = fullyPaidLoansWithoutFinish
+            .filter(loan => loan.payments && loan.payments.length > 0)
+            .map(loan => {
+                // Obtener la fecha del último pago
+                const lastPaymentDate = loan.payments[0].receivedAt; // Ya ordenado DESC
+                
+                console.log(`   ✅ Préstamo ${loan.oldId}: Pendiente=${loan.pendingAmountStored}, Último pago=${lastPaymentDate}`);
+                
+                return prisma.loan.update({
+                    where: { id: loan.id },
+                    data: {
+                        finishedDate: lastPaymentDate,
+                        status: 'FINISHED' // También actualizar el status
+                    }
+                });
+            });
+        
+        // Ejecutar actualizaciones en batches para mejor performance
+        if (updatePromises.length > 0) {
+            const batches = chunkArray(updatePromises, 200);
+            let totalUpdated = 0;
+            
+            for (const batch of batches) {
+                await prisma.$transaction(batch);
+                totalUpdated += batch.length;
+                console.log(`   🔄 Batch procesado: ${totalUpdated}/${updatePromises.length} préstamos actualizados`);
+            }
+            
+            console.log(`✅ Actualizados ${updatePromises.length} préstamos con finishedDate automático`);
+            
+            // Log de verificación
+            const verificationSample = fullyPaidLoansWithoutFinish.slice(0, 5);
+            if (verificationSample.length > 0) {
+                console.log('📋 Muestra de préstamos actualizados:');
+                for (const loan of verificationSample) {
+                    const updated = await prisma.loan.findUnique({
+                        where: { id: loan.id },
+                        select: { oldId: true, finishedDate: true, status: true, pendingAmountStored: true }
+                    });
+                    console.log(`   - ${updated?.oldId}: finishedDate=${updated?.finishedDate}, status=${updated?.status}, pendiente=${updated?.pendingAmountStored}`);
+                }
+            }
+        }
+    } else {
+        console.log('✅ No hay préstamos pagados al 100% sin fecha de término');
+    }
+    
+    console.log('🔍 ================================================\n');
+}
 
     // Actualizar balances de cuentas (amount = ingresos - egresos) para TODAS las cuentas
     {
