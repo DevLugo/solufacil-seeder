@@ -228,7 +228,7 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
                     } : undefined
                 }
             },
-            type: 'LEAD',
+            type: 'ROUTE_LEAD',
         };
 
         console.log(`📝 Creando líder: ${lead.nombre} ${lead.apellidos} con dirección en ${lead.localidad}`);
