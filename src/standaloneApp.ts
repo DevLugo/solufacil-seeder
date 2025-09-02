@@ -28,8 +28,8 @@ function askQuestion(question: string): Promise<string> {
 async function getOrCreateConnectAccount() {
     const existingConnectAccount = await prisma.account.findFirst({
         where: {
-            type: 'TRAVEL_EXPENSES',
-            routeId: null // Cuenta bancaria compartida no está asociada a una ruta específica
+            type: 'TRAVEL_EXPENSES'
+            // No se especifica route, por lo que se busca una cuenta sin ruta asociada
         }
     });
 
@@ -42,8 +42,8 @@ async function getOrCreateConnectAccount() {
         data: {
             name: 'Cuenta de gastos de viaje',
             type: 'TRAVEL_EXPENSES',
-            amount: "0",
-            routeId: null // No asociada a una ruta específica
+            amount: "0"
+            // No se especifica routes, por lo que no se asocia a ninguna ruta
         }
     });
 
@@ -54,8 +54,8 @@ async function getOrCreateConnectAccount() {
 async function getOrCreateTokaAccount() {
     const existingTokaAccount = await prisma.account.findFirst({
         where: {
-            type: 'PREPAID_GAS',
-            routeId: null // Cuenta bancaria compartida no está asociada a una ruta específica
+            type: 'PREPAID_GAS'
+            // No se especifica route, por lo que se busca una cuenta sin ruta asociada
         }
     });
 
@@ -68,8 +68,8 @@ async function getOrCreateTokaAccount() {
         data: {
             name: 'Cuenta de gasolina',
             type: 'PREPAID_GAS',
-            amount: "0",
-            routeId: null // No asociada a una ruta específica
+            amount: "0"
+            // No se especifica routes, por lo que no se asocia a ninguna ruta
         }
     });
 
@@ -82,8 +82,8 @@ async function getOrCreateSharedBankAccount() {
     // Buscar si ya existe una cuenta bancaria compartida
     const existingBankAccount = await prisma.account.findFirst({
         where: {
-            type: 'BANK',
-            routeId: null // Cuenta bancaria compartida no está asociada a una ruta específica
+            type: 'BANK'
+            // No se especifica route, por lo que se busca una cuenta sin ruta asociada
         }
     });
 
@@ -97,8 +97,8 @@ async function getOrCreateSharedBankAccount() {
         data: {
             name: 'Cuenta Bancaria Compartida',
             type: 'BANK',
-            amount: "0",
-            routeId: null // No asociada a una ruta específica
+            amount: "0"
+            // No se especifica routes, por lo que no se asocia a ninguna ruta
         }
     });
 
@@ -224,7 +224,25 @@ async function processRoute(routeName?: string) {
         }
     });
 
+    // Conectar la ruta a todas las cuentas compartidas existentes
+    await prisma.route.update({
+        where: { id: routeWithCashAccount.id },
+        data: {
+            accounts: {
+                connect: [
+                    { id: sharedBankAccount.id },
+                    { id: tokaAccount.id },
+                    { id: connectAccount.id }
+                ]
+            }
+        }
+    });
+
     console.log(`✅ Ruta "${routeName}" creada con cuenta de efectivo`);
+    console.log(`🔗 Ruta conectada a cuentas compartidas:`);
+    console.log(`   - Cuenta Bancaria: ${sharedBankAccount.name}`);
+    console.log(`   - Cuenta Gasolina: ${tokaAccount.name}`);
+    console.log(`   - Cuenta Gastos: ${connectAccount.name}`);
     const routeId = routeWithCashAccount.id;
     if (routeWithCashAccount.accounts?.[0]?.id) {
         const cashAccountId = routeWithCashAccount.accounts[0].id;

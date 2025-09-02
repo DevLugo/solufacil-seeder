@@ -27,18 +27,23 @@ export const extractPaymentData = (excelFileName: string) => {
     // Convertir la hoja a formato JSON
     const data = xlsx.utils.sheet_to_json(sheetPayments, { header: 1 });
 
-    let loansData: Payments[] = data.slice(1).map((row: ExcelRow) => {
-        const obj: Partial<Payments> = {};
-        for (const [col, key] of Object.entries(excelColumnsRelationship)) {
-            const colIndex = xlsx.utils.decode_col(col);
-            let value = row[colIndex];
-            // Convertir fechas si es necesario
-            if (key === 'paymentDate') {
-                value = convertExcelDate(value);
+    let loansData: Payments[] = data.slice(1)
+        .map((row: ExcelRow) => {
+            const obj: Partial<Payments> = {};
+            for (const [col, key] of Object.entries(excelColumnsRelationship)) {
+                const colIndex = xlsx.utils.decode_col(col);
+                let value = row[colIndex];
+                // Convertir fechas si es necesario
+                if (key === 'paymentDate') {
+                    value = convertExcelDate(value);
+                }
+                obj[key] = value;
             }
-            obj[key] = value;
-        }
-        return obj as Payments;
-    });
+            return obj as Payments;
+        })
+        .filter((payment: Payments) => payment.amount > 0); // Filtrar pagos con monto 0
+    
+    console.log(`💰 Pagos extraídos del Excel: ${data.slice(1).length} total, ${loansData.length} válidos (monto > 0)`);
+    
     return loansData;
 };

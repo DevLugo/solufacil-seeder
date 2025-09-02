@@ -12,15 +12,20 @@ generator client {
 }
 
 model User {
-  id                 String             @id @default(cuid())
-  name               String             @default("")
-  email              String             @unique @default("")
-  password           String?
-  role               String?            @default("NORMAL")
-  portfolioCleanups  PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
-  documentPhotos     DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
-  createdAt          DateTime?          @default(now())
-  from_AuditLog_user AuditLog[]         @relation("AuditLog_user")
+  id                     String             @id @default(cuid())
+  name                   String             @default("")
+  email                  String             @unique @default("")
+  password               String?
+  role                   String?            @default("NORMAL")
+  portfolioCleanups      PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
+  documentPhotos         DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
+  reportConfigsCreated   ReportConfig[]     @relation("ReportConfig_createdBy")
+  reportConfigsUpdated   ReportConfig[]     @relation("ReportConfig_updatedBy")
+  reportConfigRecipients ReportConfig[]     @relation("ReportConfig_recipients")
+  telegramUsers          TelegramUser[]     @relation("TelegramUser_platformUser")
+  employee               Employee?          @relation("Employee_user")
+  createdAt              DateTime?          @default(now())
+  from_AuditLog_user     AuditLog[]         @relation("AuditLog_user")
 }
 
 model Employee {
@@ -36,6 +41,8 @@ model Employee {
   LeadManagedLoans          Loan[]                @relation("Loan_lead")
   LeadPaymentReceivedLead   LeadPaymentReceived[] @relation("LeadPaymentReceived_lead")
   leadPaymentsReceivedAgent LeadPaymentReceived[] @relation("LeadPaymentReceived_agent")
+  user                      User?                 @relation("Employee_user", fields: [userId], references: [id])
+  userId                    String?               @unique @map("user")
   type                      String?
 
   @@index([routesId])
@@ -46,9 +53,10 @@ model Route {
   name              String             @default("")
   employees         Employee[]         @relation("Employee_routes")
   localities        Location[]         @relation("Location_route")
-  accounts          Account[]          @relation("Account_route")
+  accounts          Account[]          @relation("Account_routes")
   transactions      Transaction[]      @relation("Transaction_route")
   portfolioCleanups PortfolioCleanup[] @relation("PortfolioCleanup_route")
+  reportConfigs     ReportConfig[]     @relation("ReportConfig_routes")
 }
 
 model Location {
@@ -303,12 +311,9 @@ model Account {
   amount               Decimal?      @postgresql.Decimal(18, 4)
   transactions         Transaction[] @relation("Transaction_sourceAccount")
   receivedTransactions Transaction[] @relation("Transaction_destinationAccount")
-  route                Route?        @relation("Account_route", fields: [routeId], references: [id])
-  routeId              String?       @map("route")
+  routes               Route[]       @relation("Account_routes")
   updatedAt            DateTime?
   createdAt            DateTime?     @default(now())
-
-  @@index([routeId])
 }
 
 model AuditLog {
@@ -336,6 +341,32 @@ model AuditLog {
   @@index([recordId])
   @@index([createdAt])
   @@index([userId])
+}
+
+model ReportExecutionLog {
+  id                   String        @id @default(cuid())
+  reportConfig         ReportConfig? @relation("ReportExecutionLog_reportConfig", fields: [reportConfigId], references: [id])
+  reportConfigId       String?       @map("reportConfig")
+  status               String?
+  executionType        String?
+  message              String        @default("")
+  errorDetails         String        @default("")
+  recipientsCount      Int?
+  successfulDeliveries Int?
+  failedDeliveries     Int?
+  startTime            DateTime?
+  endTime              DateTime?
+  duration             Int?
+  cronExpression       String        @default("")
+  timezone             String        @default("")
+  createdAt            DateTime?     @default(now())
+  updatedAt            DateTime?     @default(now())
+
+  @@index([reportConfigId])
+  @@index([status])
+  @@index([executionType])
+  @@index([startTime])
+  @@index([createdAt])
 }
 
 model PortfolioCleanup {
@@ -382,9 +413,61 @@ model DocumentPhoto {
   @@index([uploadedById])
 }
 
+model ReportConfig {
+  id            String                     @id @default(cuid())
+  name          String                     @default("")
+  reportType    ReportConfigReportTypeType
+  schedule      Json?                      @default("{\"days\":[],\"hour\":\"09\",\"timezone\":\"America/Mexico_City\"}")
+  routes        Route[]                    @relation("ReportConfig_routes")
+  recipients    User[]                     @relation("ReportConfig_recipients")
+  channel       ReportConfigChannelType
+  isActive      Boolean                    @default(true)
+  createdAt     DateTime?                  @default(now())
+  updatedAt     DateTime?
+  createdBy     User?                      @relation("ReportConfig_createdBy", fields: [createdById], references: [id])
+  createdById   String?                    @map("createdBy")
+  updatedBy     User?                      @relation("ReportConfig_updatedBy", fields: [updatedById], references: [id])
+  updatedById   String?                    @map("updatedBy")
+  executionLogs ReportExecutionLog[]       @relation("ReportExecutionLog_reportConfig")
+
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+model TelegramUser {
+  id                 String    @id @default(cuid())
+  chatId             String    @unique @default("")
+  name               String    @default("")
+  username           String    @default("")
+  isActive           Boolean   @default(true)
+  registeredAt       DateTime? @default(now())
+  lastActivity       DateTime? @default(now())
+  reportsReceived    Int?      @default(0)
+  isInRecipientsList Boolean   @default(false)
+  notes              String    @default("")
+  platformUser       User?     @relation("TelegramUser_platformUser", fields: [platformUserId], references: [id])
+  platformUserId     String?   @map("platformUser")
+
+  @@index([platformUserId])
+}
+
 enum DocumentPhotoDocumentTypeType {
   INE
   DOMICILIO
   PAGARE
   OTRO
+}
+
+enum ReportConfigReportTypeType {
+  creditos_con_errores
+  creditos_sin_documentos
+  creditos_completos
+  resumen_semanal
+  reporte_financiero
+}
+
+enum ReportConfigChannelType {
+  telegram
+  email
+  whatsapp
 }
