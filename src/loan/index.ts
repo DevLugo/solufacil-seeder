@@ -1634,6 +1634,12 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
 };
 
+// Importar las nuevas funcionalidades de historial
+export * from './historialCliente';
+export * from './historialAPI';
+export * from './pdfGenerator';
+export * from './uiComponents';
+
 export const seedLoans = async (cashAccountId: string, bankAccountId: string, snapshotData: {
     routeId: string;
     routeName: string;
