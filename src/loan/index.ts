@@ -131,7 +131,7 @@ const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Pro
             };
             borrowerCache[normalizedName] = result;
 
-            console.log(`🆕 Creado nuevo borrower y personalData: "${normalizedName}" -> Borrower ID: ${newBorrower.id}`);
+            /* console.log(`🆕 Creado nuevo borrower y personalData: "${normalizedName}" -> Borrower ID: ${newBorrower.id}`); */
 
             return {
                 borrowerId: newBorrower.id,
@@ -480,10 +480,22 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     // Log removido para limpiar la consola
 
 
-    let loansWithoutLead = 0;
     let loansProcessed = 0;
     let loansSkippedDuplicates = 0;
     let renovatedLoansProcessed = 0;
+    let loansWithoutLead = 0;
+    let loansFinished = 0; // Contador para préstamos marcados como terminados
+    let falcoLossTransactionsCreated = 0; // Contador para transacciones FALCO_LOSS
+    
+    // Mapa para mantener registro de clientes FALCO con su oldId
+    const falcoClientsMap: { [oldId: string]: { 
+        id: string, 
+        fullName: string, 
+        amount: number,
+        transactionId: string,
+        leadId: string
+    } } = {};
+
     for (const [batchIndex, batch] of batches.entries()) {
         let processedLoans = 0;
         console.log(`\n🔄 ========== PROCESANDO BATCH ${batchIndex + 1}/${batches.length} ==========`);
@@ -508,14 +520,52 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             // }
 
             // VALIDACIÓN DE DUPLICADOS: Verificar si el préstamo ya existe
-            console.log(`🔍 Verificando duplicado para préstamo: ${item.id} - ${item.fullName}`);
+            /* console.log(`🔍 Verificando duplicado para préstamo: ${item.id} - ${item.fullName}`); */
             const isDuplicate = await checkLoanDuplicate(item, snapshotData.routeName);
             if (isDuplicate) {
-                console.log(`⏭️ OMITIENDO PRÉSTAMO DUPLICADO: ${item.id} - ${item.fullName}`);
+                /* console.log(`⏭️ OMITIENDO PRÉSTAMO DUPLICADO: ${item.id} - ${item.fullName}`); */
                 loansSkippedDuplicates++;
                 return Promise.resolve(null); // Omitir este préstamo
             } else {
-                console.log(`✅ PRÉSTAMO ÚNICO: ${item.id} - ${item.fullName} (procesando...)`);
+                /* console.log(`✅ PRÉSTAMO ÚNICO: ${item.id} - ${item.fullName} (procesando...)`); */
+            }
+
+            // DETECCIÓN DE CLIENTES FALCO: Si el nombre contiene "falco " (con espacio)
+            if (item.fullName.toLowerCase().includes('falco ')) {
+                console.log(`🚨 CLIENTE FALCO DETECTADO: ${item.id} - ${item.fullName}`);
+                
+                // Crear transacción FALCO_LOSS en lugar de préstamo
+                const falcoTransaction = await prisma.transaction.create({
+                    data: {
+                        amount: item.givedAmount.toString(),
+                        date: item.givedDate,
+                        type: 'EXPENSE',
+                        expenseSource: 'FALCO_LOSS',
+                        description: `Pérdida FALCO - ${item.fullName}`,
+                        routeId: snapshotData.routeId,
+                        snapshotLeadId: specificLeadId,
+                        sourceAccountId: cashAccountId,
+                        // No destinationAccount para pérdidas
+                    }
+                });
+                
+                // Guardar en el mapa de Falcos usando item.id como clave (que debería ser igual a payment.oldId)
+                falcoClientsMap[item.id.toString()] = {
+                    id: item.id.toString(),
+                    fullName: item.fullName,
+                    amount: item.givedAmount,
+                    transactionId: falcoTransaction.id,
+                    leadId: specificLeadId // Agregar el leadId para usarlo en los abonos
+                };
+                
+                falcoLossTransactionsCreated++;
+                console.log(`✅ Transacción FALCO_LOSS creada: $${item.givedAmount} para ${item.fullName}`);
+                console.log(`📊 Total de FALCO detectados hasta ahora: ${Object.keys(falcoClientsMap).length}`);
+                console.log(`🔍 Transacción creada con ID: ${falcoTransaction.id}`);
+                console.log(`🔍 Clave guardada en falcoClientsMap: ${item.id.toString()}`);
+                
+                // Retornar null para no procesar como préstamo
+                return Promise.resolve(null);
             }
 
             // Obtener los pagos para este préstamo
@@ -663,8 +713,112 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log(`🔄 Total de préstamos renovados procesados: ${renovatedLoansProcessed}`);
     console.log(`⏭️ Total de préstamos omitidos por duplicados: ${loansSkippedDuplicates}`);
     console.log(`⚠️ Total de préstamos sin lead: ${loansWithoutLead}`);
+    console.log(`🚨 Total de transacciones FALCO_LOSS creadas: ${falcoLossTransactionsCreated}`);
     console.log(`📈 Total de préstamos únicos creados: ${loansProcessed + renovatedLoansProcessed}`);
     console.log('📊 ===================================================\n');
+
+    // PROCESAR ABONOS DE CLIENTES FALCO
+    if (Object.keys(falcoClientsMap).length > 0) {
+        console.log('\n🚨 ========== PROCESANDO ABONOS DE CLIENTES FALCO ==========');
+        console.log(`📊 Total de clientes FALCO detectados: ${Object.keys(falcoClientsMap).length}`);
+        console.log(`🔍 Claves en falcoClientsMap:`, Object.keys(falcoClientsMap));
+        console.log(`🔍 Claves en groupedPayments:`, Object.keys(groupedPayments));
+        console.log(`🔍 Contenido de falcoClientsMap:`, JSON.stringify(falcoClientsMap, null, 2));
+        console.log(`🔍 Primeros 5 pagos en groupedPayments:`, Object.entries(groupedPayments).slice(0, 5));
+        console.log(`🔍 Verificando relación entre IDs: item.id vs payment.oldId`);
+        
+        // Verificar si hay coincidencias entre falcoClientsMap y groupedPayments
+        const falcoIds = Object.keys(falcoClientsMap);
+        const paymentIds = Object.keys(groupedPayments);
+        const matchingIds = falcoIds.filter(id => paymentIds.includes(id));
+        console.log(`🔍 IDs coincidentes entre FALCO y pagos:`, matchingIds);
+        
+        let falcoPaymentsProcessed = 0;
+        
+        // Buscar abonos que correspondan a clientes FALCO
+        for (const [falcoOldId, falcoClient] of Object.entries(falcoClientsMap)) {
+            console.log(`🔍 Buscando pagos para FALCO con ID: ${falcoOldId}`);
+            console.log(`🔍 Cliente FALCO: ${falcoClient.fullName}, Monto: $${falcoClient.amount}`);
+            const falcoPayments = groupedPayments[falcoOldId] || [];
+            console.log(`💰 Pagos encontrados para FALCO ${falcoOldId}:`, falcoPayments.length);
+            
+            if (falcoPayments.length === 0) {
+                console.log(`⚠️ NO se encontraron pagos para FALCO ${falcoOldId} - ${falcoClient.fullName}`);
+                console.log(`🔍 Claves disponibles en groupedPayments:`, Object.keys(groupedPayments).slice(0, 10));
+            }
+            
+            if (falcoPayments.length > 0) {
+                console.log(`💰 Procesando ${falcoPayments.length} abonos para cliente FALCO: ${falcoClient.fullName}`);
+                
+                for (const payment of falcoPayments) {
+                    console.log(`🔍 Procesando pago:`, payment);
+                    if (payment.amount > 0) {
+                        try {
+                            console.log(`🔍 Intentando crear falcoCompensatoryPayment para pago: $${payment.amount}`);
+                            
+                            // Crear registro en falcoCompensatoryPayment
+                            const falcoCompensatoryPayment = await prisma.falcoCompensatoryPayment.create({
+                                data: {
+                                    amount: payment.amount.toString(),
+                                    leadPaymentReceived: {
+                                        create: {
+                                            expectedAmount: falcoClient.amount.toString(),
+                                            paidAmount: payment.amount.toString(),
+                                            cashPaidAmount: payment.description === 'DEPOSITO' ? '0' : payment.amount.toString(),
+                                            bankPaidAmount: payment.description === 'DEPOSITO' ? payment.amount.toString() : '0',
+                                            falcoAmount: payment.amount.toString(),
+                                            paymentStatus: 'PAID',
+                                            agentId: falcoClient.leadId, // Usar el leadId guardado en falcoClient
+                                            leadId: falcoClient.leadId,  // Usar el leadId guardado en falcoClient
+                                        }
+                                    }
+                                }
+                            });
+                            
+                            console.log(`✅ falcoCompensatoryPayment creado con ID: ${falcoCompensatoryPayment.id}`);
+                            
+                            // Actualizar la transacción FALCO_LOSS restando la cantidad abonada
+                            console.log(`🔍 Actualizando transacción FALCO con ID: ${falcoClient.transactionId}`);
+                            const currentTransaction = await prisma.transaction.findUnique({
+                                where: { id: falcoClient.transactionId },
+                                select: { amount: true }
+                            });
+                            
+                            if (currentTransaction) {
+                                const currentAmount = Number(currentTransaction.amount);
+                                const newAmount = Math.max(0, currentAmount - Number(payment.amount));
+                                
+                                console.log(`🔍 Monto actual: $${currentAmount}, Monto del pago: $${payment.amount}, Nuevo monto: $${newAmount}`);
+                                
+                                await prisma.transaction.update({
+                                    where: { id: falcoClient.transactionId },
+                                    data: { 
+                                        amount: newAmount.toString(),
+                                        description: `Pérdida FALCO - ${falcoClient.fullName} (Pendiente: $${newAmount.toFixed(2)})`
+                                    }
+                                });
+                                
+                                console.log(`✅ Transacción FALCO actualizada correctamente`);
+                                falcoPaymentsProcessed++;
+                                console.log(`✅ Abono FALCO procesado: $${payment.amount} para ${falcoClient.fullName} - Pendiente actualizado: $${newAmount.toFixed(2)}`);
+                            } else {
+                                console.error(`❌ No se encontró la transacción FALCO con ID: ${falcoClient.transactionId}`);
+                            }
+                        } catch (error) {
+                            console.error(`❌ Error procesando abono FALCO para ${falcoClient.fullName}:`, error);
+                        }
+                    }
+                }
+            }
+        }
+        
+        console.log(`📊 Total de abonos FALCO procesados: ${falcoPaymentsProcessed}`);
+        console.log('🚨 ===================================================\n');
+    } else {
+        console.log('\n🚨 ========== NO SE DETECTARON CLIENTES FALCO ==========');
+        console.log('📊 No se encontraron clientes con "falco " en el nombre');
+        console.log('🚨 ===================================================\n');
+    }
 
     // Obtener los préstamos insertados y crear el mapa oldId => dbID
     const loansFromDb = await prisma.loan.findMany({
@@ -706,7 +860,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     });
 
     for (const item of renovatedLoans) {
-        console.log(`🔄 Procesando préstamo renovado: ${item.id} - ${item.fullName} (previousLoanId: ${item.previousLoanId})`);
+        /* console.log(`🔄 Procesando préstamo renovado: ${item.id} - ${item.fullName} (previousLoanId: ${item.previousLoanId})`); */
 
         const existPreviousLoan = item.previousLoanId && loanIdsMap[item.previousLoanId];
         if (!item.previousLoanId) {
@@ -715,9 +869,9 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }
         const previousLoan = await findPreviousLoan(item.previousLoanId, snapshotData.routeName);
         if (previousLoan) {
-            console.log(`✅ Préstamo previo encontrado: ${item.previousLoanId} -> ${previousLoan.id} (${previousLoan.oldId})`);
+            /* console.log(`✅ Préstamo previo encontrado: ${item.previousLoanId} -> ${previousLoan.id} (${previousLoan.oldId})`); */
         } else {
-            console.log(`❌ Préstamo previo NO encontrado: ${item.previousLoanId} - ${item.fullName}`);
+            /* console.log(`❌ Préstamo previo NO encontrado: ${item.previousLoanId} - ${item.fullName}`); */
             continue; // Omitir este préstamo renovado si no se encuentra el previo
         }
         if (item.previousLoanId === '5805') {
@@ -861,7 +1015,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }
 
         renovatedLoansProcessed++;
-        console.log(`✅ Préstamo renovado creado exitosamente: ${item.id} - ${item.fullName}`);
+        /* console.log(`✅ Préstamo renovado creado exitosamente: ${item.id} - ${item.fullName}`); */
     };
 
     // RESUMEN DE PRÉSTAMOS RENOVADOS
@@ -871,7 +1025,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('📊 ===================================================\n');
 
     //OBTEN TODOS LOS LOANS QUE TIENEN UN PREVIOUS LOAN Y MARCA EL PREVIOUS LOAN COMO RENOVATED
-    console.log('\n🔄 ========== PROCESANDO PRÉSTAMOS CON PREVIOUS LOAN ==========');
+    /* console.log('\n🔄 ========== PROCESANDO PRÉSTAMOS CON PREVIOUS LOAN =========='); */
     const loansWithPreviousLoan = await prisma.loan.findMany({
         where: {
             previousLoanId: {
@@ -1462,6 +1616,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log(`🔄 Total de préstamos renovados procesados: ${renovatedLoansProcessed}`);
     console.log(`⏭️ Total de préstamos omitidos por duplicados: ${loansSkippedDuplicates}`);
     console.log(`⚠️ Total de préstamos sin lead: ${loansWithoutLead}`);
+    console.log(`🚨 Total de transacciones FALCO_LOSS creadas: ${falcoLossTransactionsCreated}`);
     console.log(`📈 Total de préstamos únicos creados: ${loansProcessed + renovatedLoansProcessed}`);
     console.log('📊 ============================================================\n');
 

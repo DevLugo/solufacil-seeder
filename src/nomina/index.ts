@@ -174,21 +174,21 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string, snapshot
         for (const item of batch) {
             // VALIDACIÓN DE DUPLICADOS: Solo verificar si los datos son válidos
             if (!item.description || !item.date || item.amount === undefined) {
-                console.log(`⚠️ DATOS INCOMPLETOS: description=${item.description}, date=${item.date}, amount=${item.amount} - Omitiendo validación de duplicados`);
+                /* console.log(`⚠️ DATOS INCOMPLETOS: description=${item.description}, date=${item.date}, amount=${item.amount} - Omitiendo validación de duplicados`); */
                 // Continuar con el procesamiento normal sin validar duplicados
             } else {
                 console.log(`🔍 Verificando duplicado para nómina: ${item.description} - ${item.date} - ${item.amount}`);
                 const isDuplicate = await checkNominaDuplicate(item);
                 if (isDuplicate) {
-                    console.log(`⏭️ OMITIENDO NÓMINA DUPLICADA: ${item.description} - ${item.date} - ${item.amount}`);
+                    /* console.log(`⏭️ OMITIENDO NÓMINA DUPLICADA: ${item.description} - ${item.date} - ${item.amount}`); */
                     continue; // Omitir esta nómina
                 } else {
                     // Verificar si es una nómina reciente que no se valida por duplicados
                     const june2024 = new Date('2024-01-01');
                     if (item.date >= june2024) {
-                        console.log(`✅ NÓMINA RECIENTE: ${item.date} - ${item.amount} (procesando sin validación de duplicados)`);
+                        /* console.log(`✅ NÓMINA RECIENTE: ${item.date} - ${item.amount} (procesando sin validación de duplicados)`); */
                     } else {
-                        console.log(`✅ NÓMINA ÚNICA: ${item.description} - ${item.date} - ${item.amount} (procesando...)`);
+                        /* console.log(`✅ NÓMINA ÚNICA: ${item.description} - ${item.date} - ${item.amount} (procesando...)`); */
                     }
                 }
             }

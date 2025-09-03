@@ -817,7 +817,7 @@ export const createAllUniqueAvales = async (loans: Loan[]): Promise<void> => {
     
     // BULK CREATE: Crear todos los avales en una sola operación
     if (avalesToCreate.length > 0) {
-        console.log('🚀 Creando avales en bulk...');
+        /* console.log('🚀 Creando avales en bulk...'); */
         
         try {
             // Crear todos los avales en una sola operación
@@ -975,5 +975,13 @@ export const cleanUpDb = async () => {
     await prisma.transaction.deleteMany({});
     await prisma.loanPayment.deleteMany({});
     await prisma.phone.deleteMany({});
+    await prisma.falcoCompensatoryPayment.deleteMany({});
+    await prisma.documentPhoto.deleteMany({});
+    await prisma.location.deleteMany({});
+    await prisma.municipality.deleteMany({});
+    await prisma.state.deleteMany({});
+    await prisma.commissionPayment.deleteMany({});
+    await prisma.leadPaymentType.deleteMany({});
+    await prisma.leadPaymentReceived.deleteMany({});
     console.log('Datos eliminados de la base de datos');
 }

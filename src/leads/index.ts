@@ -231,7 +231,7 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
             type: 'ROUTE_LEAD',
         };
 
-        console.log(`📝 Creando líder: ${lead.nombre} ${lead.apellidos} con dirección en ${lead.localidad}`);
+        /* console.log(`📝 Creando líder: ${lead.nombre} ${lead.apellidos} con dirección en ${lead.localidad}`); */
         
         const createdEmployee = await prisma.employee.create({
             data: employeeData,

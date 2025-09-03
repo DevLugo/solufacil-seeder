@@ -222,30 +222,32 @@ model LoanPayment {
 }
 
 model Transaction {
-  id                   String       @id @default(cuid())
-  amount               Decimal?     @postgresql.Decimal(18, 4)
-  date                 DateTime?    @default(now())
-  type                 String?
-  incomeSource         String?
-  expenseSource        String?
-  description          String       @default("")
-  route                Route?       @relation("Transaction_route", fields: [routeId], references: [id])
-  routeId              String?      @map("route")
-  lead                 Employee?    @relation("Transaction_lead", fields: [leadId], references: [id])
-  leadId               String?      @map("lead")
-  snapshotLeadId       String       @default("")
-  sourceAccount        Account?     @relation("Transaction_sourceAccount", fields: [sourceAccountId], references: [id])
-  sourceAccountId      String?      @map("sourceAccount")
-  destinationAccount   Account?     @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])
-  destinationAccountId String?      @map("destinationAccount")
-  loan                 Loan?        @relation("Transaction_loan", fields: [loanId], references: [id])
-  loanId               String?      @map("loan")
-  loanPayment          LoanPayment? @relation("Transaction_loanPayment", fields: [loanPaymentId], references: [id])
-  loanPaymentId        String?      @map("loanPayment")
-  profitAmount         Decimal?     @default("0") @postgresql.Decimal(10, 2)
-  returnToCapital      Decimal?     @default("0") @postgresql.Decimal(10, 2)
-  createdAt            DateTime?    @default(now())
-  updatedAt            DateTime?
+  id                    String               @id @default(cuid())
+  amount                Decimal?             @postgresql.Decimal(18, 4)
+  date                  DateTime?            @default(now())
+  type                  String?
+  incomeSource          String?
+  expenseSource         String?
+  description           String               @default("")
+  route                 Route?               @relation("Transaction_route", fields: [routeId], references: [id])
+  routeId               String?              @map("route")
+  lead                  Employee?            @relation("Transaction_lead", fields: [leadId], references: [id])
+  leadId                String?              @map("lead")
+  snapshotLeadId        String               @default("")
+  sourceAccount         Account?             @relation("Transaction_sourceAccount", fields: [sourceAccountId], references: [id])
+  sourceAccountId       String?              @map("sourceAccount")
+  destinationAccount    Account?             @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])
+  destinationAccountId  String?              @map("destinationAccount")
+  loan                  Loan?                @relation("Transaction_loan", fields: [loanId], references: [id])
+  loanId                String?              @map("loan")
+  loanPayment           LoanPayment?         @relation("Transaction_loanPayment", fields: [loanPaymentId], references: [id])
+  loanPaymentId         String?              @map("loanPayment")
+  leadPaymentReceived   LeadPaymentReceived? @relation("Transaction_leadPaymentReceived", fields: [leadPaymentReceivedId], references: [id])
+  leadPaymentReceivedId String?              @map("leadPaymentReceived")
+  profitAmount          Decimal?             @default("0") @postgresql.Decimal(10, 2)
+  returnToCapital       Decimal?             @default("0") @postgresql.Decimal(10, 2)
+  createdAt             DateTime?            @default(now())
+  updatedAt             DateTime?
 
   @@index([routeId])
   @@index([leadId])
@@ -253,6 +255,7 @@ model Transaction {
   @@index([destinationAccountId])
   @@index([loanId])
   @@index([loanPaymentId])
+  @@index([leadPaymentReceivedId])
 }
 
 model CommissionPayment {
@@ -299,6 +302,7 @@ model LeadPaymentReceived {
   leadId                    String?                    @map("lead")
   falcoCompensatoryPayments FalcoCompensatoryPayment[] @relation("FalcoCompensatoryPayment_leadPaymentReceived")
   payments                  LoanPayment[]              @relation("LoanPayment_leadPaymentReceived")
+  transactions              Transaction[]              @relation("Transaction_leadPaymentReceived")
 
   @@index([agentId])
   @@index([leadId])
