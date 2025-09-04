@@ -405,33 +405,69 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     console.log('🚀 LÍNEA 7: Antes de crear loanTypes');
 
 
-    //Create the loanTypes
-    const fourteenWeeksId = await prisma.loantype.create({
+    //Create the loanTypes - Verificar si ya existen antes de crear
+    let fourteenWeeksId = await prisma.loantype.findFirst({
+        where: {
+            name: '14 semanas/40%',
+            weekDuration: 14,
+            rate: '0.4',
+        }
+    });
+    
+    if (!fourteenWeeksId) {
+        fourteenWeeksId = await prisma.loantype.create({
         data: {
             name: '14 semanas/40%',
             weekDuration: 14,
             rate: '0.4',
         }
     });
-    const teennWeeksId = await prisma.loantype.create(
-        {
+        console.log('✅ Creado loantype: 14 semanas/40%');
+    } else {
+        console.log('🔄 Reutilizando loantype existente: 14 semanas/40%');
+    }
+
+    let teennWeeksId = await prisma.loantype.findFirst({
+        where: {
+            name: '10 semanas/0%',
+            weekDuration: 10,
+            rate: '0',
+        }
+    });
+    
+    if (!teennWeeksId) {
+        teennWeeksId = await prisma.loantype.create({
             data: {
                 name: '10 semanas/0%',
                 weekDuration: 10,
                 rate: '0',
             }
-        },
-    );
+        });
+        console.log('✅ Creado loantype: 10 semanas/0%');
+    } else {
+        console.log('🔄 Reutilizando loantype existente: 10 semanas/0%');
+    }
 
-    const twentyWeeksId = await prisma.loantype.create(
-        {
+    let twentyWeeksId = await prisma.loantype.findFirst({
+        where: {
+            name: '20 semanas/0%',
+            weekDuration: 20,
+            rate: '0.1',
+        }
+    });
+    
+    if (!twentyWeeksId) {
+        twentyWeeksId = await prisma.loantype.create({
             data: {
                 name: '20 semanas/0%',
                 weekDuration: 20,
                 rate: '0.1',
             }
-        },
-    );
+        });
+        console.log('✅ Creado loantype: 20 semanas/0%');
+    } else {
+        console.log('🔄 Reutilizando loantype existente: 20 semanas/0%');
+    }
 
 
     const groupedPayments = groupPaymentsByOldLoanId(payments);
@@ -1378,7 +1414,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     }
     
     console.log('🔍 ================================================\n');
-}
+    }
 
     // Actualizar balances de cuentas (amount = ingresos - egresos) para TODAS las cuentas
     {
