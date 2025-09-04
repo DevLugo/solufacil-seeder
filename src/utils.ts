@@ -983,5 +983,13 @@ export const cleanUpDb = async () => {
     await prisma.commissionPayment.deleteMany({});
     await prisma.leadPaymentType.deleteMany({});
     await prisma.leadPaymentReceived.deleteMany({});
+    await prisma.reportConfig.deleteMany({});
+    await prisma.telegramUser.deleteMany({});
+    await prisma.portfolioCleanup.deleteMany({});
+    await prisma.account.deleteMany({});
+    await prisma.auditLog.deleteMany({});
+    await prisma.address.deleteMany({});
+    await prisma.falcoCompensatoryPayment.deleteMany({});
+    
     console.log('Datos eliminados de la base de datos');
 }

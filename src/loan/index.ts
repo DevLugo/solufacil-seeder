@@ -411,6 +411,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             name: '14 semanas/40%',
             weekDuration: 14,
             rate: '0.4',
+            loanGrantedComission: '8',
+            loanPaymentComission: '8',
         }
     });
     
