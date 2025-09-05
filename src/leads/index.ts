@@ -177,10 +177,7 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
 
        console.log(`📊 Encontrados ${routeLeads.length} líderes del Excel (todos para la ruta "${routeName}")`);
        console.log(`📋 Total de líderes activos extraídos: ${routeLeads.length}`);
-       console.log(`🔍 Lista de líderes activos:`);
-       routeLeads.forEach((lead, index) => {
-           console.log(`  ${index + 1}. ${lead.nombre} ${lead.apellidos} - Estado: ${lead.activo}`);
-       });
+       
     
            // Continuar con el proceso completo
     

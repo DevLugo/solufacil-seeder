@@ -43,7 +43,6 @@ export const extractPaymentData = (excelFileName: string) => {
         })
         .filter((payment: Payments) => payment.amount > 0); // Filtrar pagos con monto 0
     
-    console.log(`💰 Pagos extraídos del Excel: ${data.slice(1).length} total, ${loansData.length} válidos (monto > 0)`);
     
     return loansData;
 };

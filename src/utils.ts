@@ -653,11 +653,44 @@ export const createAvalPersonalData = async (avalName: string, predefinedId: str
                 // Alguien más lo creó mientras tanto
                 avalCache.set(normalizedAvalName, finalCheck.id);
                 
+                // Verificar si ya tiene teléfonos para debug general
+                const existingWithPhones = await tx.personalData.findUnique({
+                    where: { id: finalCheck.id },
+                    include: { phones: true }
+                });
+                
+                // Verificar si el PersonalData existente tiene teléfono, si no, agregarlo
+                if (avalPhone && avalPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(avalPhone)) {
+                    // Eliminar teléfonos existentes y agregar el nuevo
+                    if (existingWithPhones?.phones && existingWithPhones.phones.length > 0) {
+                        await tx.phone.deleteMany({
+                            where: { personalDataId: finalCheck.id }
+                        });
+                        console.log(`🗑️ Teléfonos existentes eliminados para aval: ${finalCheck.id}`);
+                    }
+                    
+                    // Agregar el nuevo teléfono
+                    await tx.phone.create({
+                        data: {
+                            number: String(avalPhone),
+                            personalDataId: finalCheck.id
+                        }
+                    });
+                    console.log(`📞 Teléfono actualizado para PersonalData existente del aval: ${finalCheck.id} -> ${avalPhone}`);
+                }
+                
                 return;
             }
             
+            // Debug general para creación de aval
+            if (avalPhone && avalPhone.trim() !== "" && !["NA", "N/A", "N", "undefined", "PENDIENTE"].includes(avalPhone)) {
+                console.log(`📞 Creando aval con teléfono: "${normalizedAvalName}" -> ${avalPhone}`);
+            } else {
+                console.log(`📞 Creando aval sin teléfono: "${normalizedAvalName}" (teléfono: "${avalPhone}")`);
+            }
+            
             // CREAR el registro
-            await tx.personalData.create({
+            const newPersonalData = await tx.personalData.create({
                 data: {
                     id: predefinedId,
                     fullName: normalizedAvalName,
@@ -668,6 +701,13 @@ export const createAvalPersonalData = async (avalName: string, predefinedId: str
                     } : undefined
                 }
             });
+            
+            // Debug post-creación general para aval
+            const createdWithPhones = await tx.personalData.findUnique({
+                where: { id: newPersonalData.id },
+                include: { phones: true }
+            });
+            console.log(`✅ Aval creado: ${newPersonalData.id} - Teléfonos: ${createdWithPhones?.phones?.length || 0}`);
             
             // SOLO actualizar cache DESPUÉS de confirmar la creación
             avalCache.set(normalizedAvalName, predefinedId);
@@ -895,6 +935,7 @@ export const createAllUniqueAvales = async (loans: Loan[]): Promise<void> => {
             if (avalesWithPhones.length > 0) {
                 for (const aval of avalesWithPhones) {
                     try {
+                        // Debug general para bulk create de avales
                         await prisma.phone.create({
                             data: {
                                 number: (aval.phones as any).create.number,
@@ -903,6 +944,7 @@ export const createAllUniqueAvales = async (loans: Loan[]): Promise<void> => {
                                 }
                             }
                         });
+                        
                     } catch (error) {
                         // Ignorar errores de teléfonos duplicados
                         console.warn(`⚠️ Teléfono duplicado para aval ${aval.id}:`, error);

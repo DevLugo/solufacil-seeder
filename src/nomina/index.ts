@@ -16,7 +16,6 @@ const checkNominaDuplicate = async (expense: Expense): Promise<boolean> => {
         // Solo validar duplicados para nóminas de junio de 2024 hacia atrás
         const june2024 = new Date('2024-01-01');
         if (expense.date >= june2024) {
-            console.log(`✅ NÓMINA RECIENTE (${expense.date.toISOString().split('T')[0]}): No se valida duplicado para nóminas posteriores a junio 2024`);
             return false; // No validar duplicados para nóminas recientes
         }
 
@@ -40,7 +39,6 @@ const checkNominaDuplicate = async (expense: Expense): Promise<boolean> => {
 
         return false;
     } catch (error) {
-        console.error('❌ Error verificando duplicado de nómina:', error);
         return false; // En caso de error, permitir la inserción
     }
 };
@@ -177,7 +175,6 @@ const saveExpensesOnDB = async (data: Expense[], bankAccountId: string, snapshot
                 /* console.log(`⚠️ DATOS INCOMPLETOS: description=${item.description}, date=${item.date}, amount=${item.amount} - Omitiendo validación de duplicados`); */
                 // Continuar con el procesamiento normal sin validar duplicados
             } else {
-                console.log(`🔍 Verificando duplicado para nómina: ${item.description} - ${item.date} - ${item.amount}`);
                 const isDuplicate = await checkNominaDuplicate(item);
                 if (isDuplicate) {
                     /* console.log(`⏭️ OMITIENDO NÓMINA DUPLICADA: ${item.description} - ${item.date} - ${item.amount}`); */
