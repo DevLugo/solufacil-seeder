@@ -109,11 +109,8 @@ const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Pro
                             },
                         },
                     });
-                    console.log(`📞 Teléfono actualizado para "${normalizedName}": ${currentPhone || 'N/A'} -> ${newPhone}`);
                 } else if (isPhoneValid(titularPhone) && currentPhone === newPhone) {
-                    console.log(`📞 Teléfono ya actualizado para "${normalizedName}": ${newPhone}`);
                 } else if (!isPhoneValid(titularPhone)) {
-                    console.log(`📞 Teléfono inválido para "${normalizedName}": "${titularPhone}" - manteniendo teléfono anterior: ${currentPhone || 'N/A'}`);
                 }
                 // ---- FIN DE LA LÓGICA DE ACTUALIZACIÓN ----
 

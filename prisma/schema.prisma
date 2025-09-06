@@ -403,6 +403,7 @@ model DocumentPhoto {
   documentType     DocumentPhotoDocumentTypeType
   isError          Boolean                       @default(false)
   errorDescription String                        @default("")
+  isMissing        Boolean                       @default(false)
   personalData     PersonalData?                 @relation("DocumentPhoto_personalData", fields: [personalDataId], references: [id])
   personalDataId   String?                       @map("personalData")
   loan             Loan?                         @relation("DocumentPhoto_loan", fields: [loanId], references: [id])
