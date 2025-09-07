@@ -694,7 +694,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     payments: {
                         create: paymentsForLoan.map(payment => {
 
-                            const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
+                            const loanType = item.noWeeks === 14 ? fourteenWeeksId : item.noWeeks === 20 ? twentyWeeksId : teennWeeksId;
 
                             const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
                             const rate = loanType.rate ? Number(loanType.rate) : 0;
@@ -961,7 +961,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             /* console.log('====5805===', previousLoan, loanIdsMap); */
         }
 
-        const loanType = item.noWeeks === 14 ? fourteenWeeksId : teennWeeksId;
+        const loanType = item.noWeeks === 14 ? fourteenWeeksId : item.noWeeks === 20 ? twentyWeeksId : teennWeeksId;
         const rate = loanType.rate ? Number(loanType.rate) : 0;
         const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
         const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc: number, payment: any) => {
@@ -1035,7 +1035,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 badDebtDate: item.badDebtDate,
                 loantype: {
                     connect: {
-                        id: item.noWeeks === 14 ? fourteenWeeksId.id : teennWeeksId.id,
+                        id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
                     },
                 },
                 lead: {

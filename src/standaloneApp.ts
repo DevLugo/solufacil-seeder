@@ -106,6 +106,35 @@ async function getOrCreateSharedBankAccount() {
     return newBankAccount;
 }
 
+// Función para obtener o crear la cuenta de caja de oficina
+async function getOrCreateOfficeCashAccount() {
+    // Buscar si ya existe una cuenta de caja de oficina
+    const existingOfficeAccount = await prisma.account.findFirst({
+        where: {
+            type: 'OFFICE_CASH_FUND'
+            // No se especifica route, por lo que se busca una cuenta sin ruta asociada
+        }
+    });
+
+    if (existingOfficeAccount) {
+        console.log('✅ Cuenta de caja de oficina encontrada y reutilizada:', existingOfficeAccount.name);
+        return existingOfficeAccount;
+    }
+
+    // Si no existe, crear una nueva cuenta de caja de oficina
+    const newOfficeAccount = await prisma.account.create({
+        data: {
+            name: 'Caja Merida',
+            type: 'OFFICE_CASH_FUND',
+            amount: "0"
+            // No se especifica routes, por lo que no se asocia a ninguna ruta
+        }
+    });
+
+    console.log('✅ Nueva cuenta de caja de oficina creada:', newOfficeAccount.name);
+    return newOfficeAccount;
+}
+
 // Función para obtener los datos de snapshot de la ruta
 async function getRouteSnapshotData(routeId: string) {
     const route = await prisma.route.findUnique({
@@ -182,6 +211,87 @@ async function createLeadMapping(routeId: string, excelFileName: string, routeNa
     return leadMapping;
 }
 
+// Función para portafolio cleanup
+async function portfolioCleanup(cashAccountId: string, bankAccountId: string, routeId: string) {
+    const startDate = new Date('2020-01-01');
+    const endDate = new Date('2024-03-31');
+    const applicationDate = new Date('2025-04-01');
+    
+    try {
+        // 1. Obtener préstamos del período especificado
+        console.log('🔍 Obteniendo préstamos del período...');
+        const periodLoans = await prisma.loan.findMany({
+            where: {
+                signDate: {
+                    gte: startDate,
+                    lte: endDate
+                },
+                snapshotRouteId: routeId
+            },
+            include: {
+                borrower: {
+                    include: {
+                        personalData: true
+                    }
+                },
+                payments: {
+                    include: {
+                        transactions: true
+                    }
+                }
+            },
+            orderBy: {
+                signDate: 'asc'
+            }
+        });
+        
+        console.log(`📊 Total de préstamos en el período: ${periodLoans.length}`);
+        
+        // 2. Procesar y agregar información de los préstamos
+        console.log('📊 Procesando información de préstamos...');
+        let totalAmountGived = 0;
+        let totalRequestedAmount = 0;
+        let totalProfitAmount = 0;
+        let activeLoans = 0;
+        let finishedLoans = 0;
+        
+        for (const loan of periodLoans) {
+            // Calcular totales
+            totalAmountGived += Number(loan.amountGived || 0);
+            totalRequestedAmount += Number(loan.requestedAmount || 0);
+            totalProfitAmount += Number(loan.profitAmount || 0);
+            
+            // Contar por estado
+            if (loan.status === 'ACTIVE') {
+                activeLoans++;
+            } else if (loan.status === 'FINISHED') {
+                finishedLoans++;
+            }
+            
+            console.log(`📋 Préstamo: ${loan.oldId} - ${loan.borrower?.personalData?.fullName || 'Sin nombre'} - $${loan.amountGived} - ${loan.status}`);
+        }
+        
+        // 3. Crear registro en la tabla portfolioCleanup
+        console.log('📝 Creando registro en tabla portfolioCleanup...');
+        await prisma.portfolioCleanup.create({
+            data: {
+                name: `Portfolio Cleanup - ${startDate.toISOString().split('T')[0]} a ${endDate.toISOString().split('T')[0]}`,
+                description: `Análisis de ${periodLoans.length} préstamos del período histórico. Activos: ${activeLoans}, Terminados: ${finishedLoans}. Monto total: $${totalAmountGived.toFixed(2)}`,
+                cleanupDate: applicationDate,
+                fromDate: startDate,
+                toDate: endDate,
+                excludedLoansCount: periodLoans.length,
+                excludedAmount: totalAmountGived,
+                routeId: routeId
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error durante el portafolio cleanup:', error);
+        throw error;
+    }
+}
+
 // Función para procesar una ruta específica
 async function processRoute(routeName?: string) {
     // Si no se proporciona el nombre de la ruta, preguntarlo
@@ -204,8 +314,10 @@ async function processRoute(routeName?: string) {
     const sharedBankAccount = await getOrCreateSharedBankAccount();
     const tokaAccount = await getOrCreateTokaAccount();
     const connectAccount = await getOrCreateConnectAccount();
+    const officeCashAccount = await getOrCreateOfficeCashAccount();
     console.log('====CONNECT ACCOUNT====', connectAccount);
     console.log('====TOKA ACCOUNT====', tokaAccount);
+    console.log('====OFFICE CASH ACCOUNT====', officeCashAccount);
 
     // Crear la ruta y su cuenta de efectivo específica
     const routeWithCashAccount = await prisma.route.create({
@@ -232,7 +344,8 @@ async function processRoute(routeName?: string) {
                 connect: [
                     { id: sharedBankAccount.id },
                     { id: tokaAccount.id },
-                    { id: connectAccount.id }
+                    { id: connectAccount.id },
+                    { id: officeCashAccount.id }
                 ]
             }
         }
@@ -243,6 +356,7 @@ async function processRoute(routeName?: string) {
     console.log(`   - Cuenta Bancaria: ${sharedBankAccount.name}`);
     console.log(`   - Cuenta Gasolina: ${tokaAccount.name}`);
     console.log(`   - Cuenta Gastos: ${connectAccount.name}`);
+    console.log(`   - Caja Merida: ${officeCashAccount.name}`);
     const routeId = routeWithCashAccount.id;
     if (routeWithCashAccount.accounts?.[0]?.id) {
         const cashAccountId = routeWithCashAccount.accounts[0].id;
@@ -273,6 +387,11 @@ async function processRoute(routeName?: string) {
         await seedNomina(bankAccountId, snapshotData, excelFileName, routeId, leadMapping);
         console.log('✅ SEED NOMINA COMPLETADO');
         
+        console.log('🔄 ========== INICIANDO PORTFOLIO CLEANUP ==========');
+        await portfolioCleanup(cashAccountId, bankAccountId, routeId);
+        console.log('✅ PORTFOLIO CLEANUP COMPLETADO');
+
+        //
         //await seedPayments(route2.id);
         //TODO: save comision and earned amount on payments
         console.log('✅ Datos guardados en la base de datos');
