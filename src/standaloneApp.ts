@@ -219,7 +219,6 @@ async function portfolioCleanup(cashAccountId: string, bankAccountId: string, ro
     
     try {
         // 1. Obtener préstamos del período especificado
-        console.log('🔍 Obteniendo préstamos del período...');
         const periodLoans = await prisma.loan.findMany({
             where: {
                 signDate: {
@@ -245,10 +244,8 @@ async function portfolioCleanup(cashAccountId: string, bankAccountId: string, ro
             }
         });
         
-        console.log(`📊 Total de préstamos en el período: ${periodLoans.length}`);
         
         // 2. Procesar y agregar información de los préstamos
-        console.log('📊 Procesando información de préstamos...');
         let totalAmountGived = 0;
         let totalRequestedAmount = 0;
         let totalProfitAmount = 0;
@@ -268,7 +265,6 @@ async function portfolioCleanup(cashAccountId: string, bankAccountId: string, ro
                 finishedLoans++;
             }
             
-            console.log(`📋 Préstamo: ${loan.oldId} - ${loan.borrower?.personalData?.fullName || 'Sin nombre'} - $${loan.amountGived} - ${loan.status}`);
         }
         
         // 3. Crear registro en la tabla portfolioCleanup

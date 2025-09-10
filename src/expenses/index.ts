@@ -5,6 +5,18 @@ import { chunkArray, convertExcelDate } from "../utils";
 import { ExcelExpensesRow, Expense } from "./types";
 const xlsx = require('xlsx');
 
+// Función utilitaria para ajustar fechas a la zona horaria de México (GMT-6)
+const adjustDateForMexico = (date: Date | null | undefined): Date | null => {
+    if (!date) return null;
+    
+    const adjustedDate = new Date(date);
+    // Si la fecha tiene hora 00:00:00 UTC, ajustarla a 06:00:00 UTC (medianoche en México GMT-6)
+    if (adjustedDate.getUTCHours() === 0 && adjustedDate.getUTCMinutes() === 0 && adjustedDate.getUTCSeconds() === 0) {
+        return new Date(adjustedDate.getTime() + (6 * 60 * 60 * 1000));
+    }
+    return adjustedDate;
+};
+
 // Función para validar si un gasto ya existe en la base de datos
 const checkExpenseDuplicate = async (expense: Expense): Promise<boolean> => {
     try {
@@ -173,7 +185,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
             transactionPromises.push(prisma.transaction.create({
                 data: {
                     amount: item.amount.toString(),
-                    date: item.date,
+                    date: adjustDateForMexico(item.date),
                     sourceAccount: {
                         connect: {
                             id: accountId,

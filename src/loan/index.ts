@@ -551,6 +551,18 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         return;
     }
 
+    // Función utilitaria para ajustar fechas a la zona horaria de México (GMT-6)
+    const adjustDateForMexico = (date: Date | null | undefined): Date | null => {
+        if (!date) return null;
+        
+        const adjustedDate = new Date(date);
+        // Si la fecha tiene hora 00:00:00 UTC, ajustarla a 06:00:00 UTC (medianoche en México GMT-6)
+        if (adjustedDate.getUTCHours() === 0 && adjustedDate.getUTCMinutes() === 0 && adjustedDate.getUTCSeconds() === 0) {
+            return new Date(adjustedDate.getTime() + (6 * 60 * 60 * 1000));
+        }
+        return adjustedDate;
+    };
+
     // Función para determinar el status del préstamo
     const determineLoanStatus = (item: Loan, allLoans: Loan[]) => {
         // Si tiene fecha de término
@@ -686,7 +698,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     },
                     oldId: generateUniqueOldId(snapshotData.routeName, item.id),
                     status: determineLoanStatus(item, loans),
-                    badDebtDate: item.badDebtDate,
+                    badDebtDate: adjustDateForMexico(item.badDebtDate),
                     snapshotRouteId: snapshotData.routeId,
                     snapshotRouteName: snapshotData.routeName,
                     snapshotLeadId: specificLeadId,
@@ -707,7 +719,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
                             return {
                                 oldLoanId: generateUniqueOldId(snapshotData.routeName, item.id),
-                                receivedAt: payment.paymentDate,
+                                receivedAt: adjustDateForMexico(payment.paymentDate),
                                 amount: payment.amount,
 
                                 //profitAmounst: item.badDebtDate && payment.paymentDate > item.badDebtDate? payment.amount: profitAmount,
@@ -718,7 +730,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                         profitAmount: item.badDebtDate && payment.paymentDate > item.badDebtDate ? payment.amount : profitAmount,
                                         returnToCapital: item.badDebtDate && payment.paymentDate > item.badDebtDate ? 0 : payment.amount - profitAmount,
                                         amount: payment.amount,
-                                        date: payment.paymentDate,
+                                        date: adjustDateForMexico(payment.paymentDate),
                                         destinationAccountId: payment.description === 'DEPOSITO' ? bankAccount : cashAccountId,
                                         type: 'INCOME',
                                         incomeSource: payment.description === 'DEPOSITO' ? 'BANK_LOAN_PAYMENT' : 'CASH_LOAN_PAYMENT',
@@ -730,15 +742,15 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                             }
                         })
                     },
-                    signDate: item.givedDate,
+                    signDate: adjustDateForMexico(item.givedDate) || item.givedDate,
                     amountGived: item.givedAmount.toString(),
                     requestedAmount: item.requestedAmount.toString(),
-                    finishedDate: item.finishedDate,
+                    finishedDate: adjustDateForMexico(item.finishedDate),
                     profitAmount: item.noWeeks === 14 ? (item.requestedAmount * 0.4).toString() : '0',
                     transactions: {
                         create: [{
                             amount: item.givedAmount,
-                            date: item.givedDate,
+                            date: adjustDateForMexico(item.givedDate),
                             sourceAccountId: cashAccountId,
                             type: 'EXPENSE',
                             expenseSource: 'LOAN_GRANTED',
@@ -1014,11 +1026,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                                 },
                             },
                         });
-                        console.log(`📞 Teléfono actualizado para préstamo renovado "${item.fullName}": ${currentPhone || 'N/A'} -> ${newPhone}`);
                     } else if (isPhoneValid(item.titularPhone) && currentPhone === newPhone) {
-                        console.log(`📞 Teléfono ya actualizado para préstamo renovado "${item.fullName}": ${newPhone}`);
                     } else if (!isPhoneValid(item.titularPhone)) {
-                        console.log(`📞 Teléfono inválido para préstamo renovado "${item.fullName}": "${item.titularPhone}" - manteniendo teléfono anterior: ${currentPhone || 'N/A'}`);
                     }
                 }
             } catch (error) {
@@ -1029,10 +1038,10 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         const createdRenovatedLoan = await prisma.loan.create({
             data: {
                 oldId: generateUniqueOldId(snapshotData.routeName, item.id),
-                signDate: item.givedDate,
+                signDate: adjustDateForMexico(item.givedDate) || item.givedDate,
                 amountGived: item.givedAmount.toString(),
                 requestedAmount: item.requestedAmount.toString(),
-                badDebtDate: item.badDebtDate,
+                badDebtDate: adjustDateForMexico(item.badDebtDate),
                 loantype: {
                     connect: {
                         id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
@@ -1044,7 +1053,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     }
                 },
                 status: determineLoanStatus(item, loans),
-                finishedDate: item.finishedDate,
+                finishedDate: adjustDateForMexico(item.finishedDate), // || (previousLoan ? previousLoan.signDate : null),
+                //finishedDate: item.finishedDate || (previousLoan ? previousLoan.signDate : null),
                 borrower: previousLoan?.borrowerId ? {
                     connect: {
                         id: previousLoan.borrowerId,
@@ -1079,7 +1089,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                         }
                         return {
                             oldLoanId: generateUniqueOldId(snapshotData.routeName, item.id),
-                            receivedAt: payment.paymentDate,
+                            receivedAt: adjustDateForMexico(payment.paymentDate),
                             amount: payment.amount,
                             /* profitAmount: profitAmount,
                             returnToCapital: payment.amount - profitAmount, */
@@ -1202,7 +1212,15 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 return !max || d > max ? d : max;
             }, null);
             if (!lastPayment) return null;
-            return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: lastPayment } });
+            
+            // Ajustar la fecha para México (GMT-6)
+            let adjustedDate = new Date(lastPayment);
+            if (adjustedDate.getUTCHours() === 0 && adjustedDate.getUTCMinutes() === 0 && adjustedDate.getUTCSeconds() === 0) {
+                // Ajustar a 06:00:00 UTC (medianoche en México GMT-6)
+                adjustedDate = new Date(adjustedDate.getTime() + (6 * 60 * 60 * 1000));
+            }
+            
+            return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: adjustedDate } });
         }).filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
 
         if (updates.length > 0) {
@@ -1214,8 +1232,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }
     }
 
-    // Establecer finishedDate del préstamo previo igual al signDate del nuevo préstamo (renovación)
-    // Y establecer renewedDate del préstamo previo igual al signDate del nuevo préstamo
+    // Establecer renewedDate del préstamo previo igual al signDate del nuevo préstamo (renovación)
+    // NOTA: finishedDate ahora siempre será la fecha del último pago (se maneja en la sección anterior)
     {
         const childrenWithPrevious = await prisma.loan.findMany({
             where: {
@@ -1235,44 +1253,25 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 .filter(Boolean)
         ));
 
-        let prevMap = new Map<string, Date | null>();
-        if (prevIds.length > 0) {
-            const prevLoans = await prisma.loan.findMany({
-                where: { id: { in: prevIds } },
-                select: { id: true, finishedDate: true }
-            });
-            prevLoans.forEach(p => prevMap.set(p.id, p.finishedDate ? new Date(p.finishedDate) : null));
-        }
-
-
         const updates = childrenWithPrevious
             .filter(l => Boolean(l.previousLoanId) && Boolean(l.signDate))
             .map(l => {
                 const prevId = l.previousLoanId as string;
                 const childSign = l.signDate as Date;
-                const prevFinished = prevMap.get(prevId) ?? null;
 
-                // Actualizar tanto finishedDate como renewedDate usando SQL directo para evitar problemas de tipos
-                if (!prevFinished) {
-                    if (["7150"].includes(l.oldId as string)) {
-                        console.log('====1338===', prevId, childSign);
-                    }
-                    return prisma.$executeRaw`
-                        UPDATE "Loan" 
-                        SET "finishedDate" = ${childSign}, "renewedDate" = ${childSign}
-                        WHERE id = ${prevId}
-                    `;
+                // Ajustar la fecha para México (GMT-6)
+                let adjustedChildSign = new Date(childSign);
+                if (adjustedChildSign.getUTCHours() === 0 && adjustedChildSign.getUTCMinutes() === 0 && adjustedChildSign.getUTCSeconds() === 0) {
+                    // Ajustar a 06:00:00 UTC (medianoche en México GMT-6)
+                    adjustedChildSign = new Date(adjustedChildSign.getTime() + (6 * 60 * 60 * 1000));
                 }
 
-                if (isSameWorkWeek(prevFinished, childSign) && prevFinished.getTime() !== childSign.getTime()) {
-                    return prisma.$executeRaw`
-                        UPDATE "Loan" 
-                        SET "finishedDate" = ${childSign}, "renewedDate" = ${childSign}
-                        WHERE id = ${prevId}
-                    `;
-                }
-
-                return null;
+                // Solo actualizar renewedDate (finishedDate se maneja en la sección anterior)
+                return prisma.$executeRaw`
+                    UPDATE "Loan" 
+                    SET "renewedDate" = ${adjustedChildSign}
+                    WHERE id = ${prevId}
+                `;
             })
             .filter(u => Boolean(u));
 
@@ -1281,74 +1280,11 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             for (const batch of batches) {
                 await Promise.all(batch);
             }
-            console.log(`✅ Sincronizados finishedDate y renewedDate de préstamos previos por renovaciones (>=1 semana): ${updates.length}`);
+            console.log(`✅ Sincronizados renewedDate de préstamos previos por renovaciones: ${updates.length}`);
         }
     }
 
-    // Corrección: si el último pago es posterior a finishedDate, actualizar finishedDate,
-    // a menos que exista una renovación con signDate a <= 7 días de la finishedDate (en cuyo caso se prioriza el signDate del crédito renovado)
-    {
-        // Traer loans de la ruta con pagos
-        const loansForFix = await prisma.loan.findMany({
-            where: { snapshotRouteId: snapshotData.routeId },
-            select: {
-                id: true,
-                finishedDate: true,
-                payments: { select: { receivedAt: true } },
-                oldId: true
-            }
-        });
-
-        const loanIds = loansForFix.map(l => l.id);
-        // Traer hijos que referencian a estos loans
-        const children = loanIds.length > 0
-            ? await prisma.loan.findMany({
-                where: { previousLoanId: { in: loanIds } },
-                select: { previousLoanId: true, signDate: true, oldId: true }
-            })
-            : [];
-        const prevIdToChildSign = new Map<string, Date>();
-        for (const c of children) {
-            if (!c.previousLoanId || !c.signDate) continue;
-            const curr = prevIdToChildSign.get(c.previousLoanId);
-            const sign = c.signDate as Date;
-            if (!curr || sign < curr) prevIdToChildSign.set(c.previousLoanId, sign);
-        }
-
-
-        const updates = loansForFix.map(l => {
-            const finished = l.finishedDate ? new Date(l.finishedDate) : null;
-            const lastPayment = l.payments.reduce((max: Date | null, p) => {
-                const d = p.receivedAt as unknown as Date;
-                return !max || d > max ? d : max;
-            }, null);
-
-            if (!finished && !lastPayment) return null;
-
-            const childSign = prevIdToChildSign.get(l.id) ?? null;
-            // Prioridad: si existe childSign y finished y están en la misma semana laboral, usar childSign
-            if (finished && childSign) {
-                if (isSameWorkWeek(finished, childSign) && finished.getTime() !== childSign.getTime()) {
-                    return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: childSign } });
-                }
-            }
-
-            // Si último pago es posterior a finishedDate, corregir a último pago
-            if (lastPayment && finished && lastPayment > finished) {
-                return prisma.loan.update({ where: { id: l.id }, data: { finishedDate: lastPayment } });
-            }
-
-            return null;
-        }).filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
-
-        if (updates.length > 0) {
-            const batches = chunkArray(updates, 200);
-            for (const batch of batches) {
-                await prisma.$transaction(batch);
-            }
-            console.log(`✅ Corregidos finishedDate por desfasaje con pagos/renovación: ${updates.length}`);
-        }
-    }
+    // NOTA: La corrección de finishedDate ya no es necesaria porque ahora siempre se establece como la fecha del último pago
 
     await prisma.loan.updateMany({
         where: {},
@@ -1407,94 +1343,176 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             console.log(`✅ Denormalizados préstamos: ${denormUpdates.length} (deuda, pago semanal, pagado, pendiente)`);
         }
     }
-    // NUEVO: Detectar y actualizar préstamos pagados al 100% sin finishedDate
-{
-    console.log('\n🔍 ========== DETECTANDO PRÉSTAMOS PAGADOS AL 100% ==========');
-    
-    // Buscar préstamos sin finishedDate pero con pendingAmountStored = 0 o muy cercano a 0
-    const fullyPaidLoansWithoutFinish = await prisma.loan.findMany({
-        where: {
-            snapshotRouteId: snapshotData.routeId,
-            finishedDate: null,
-            OR: [
-                { pendingAmountStored: "0" },
-                { pendingAmountStored: "0.00" },
-                // Considerar también valores muy pequeños (< 1) como pagados
-                {
-                    AND: [
-                        { pendingAmountStored: { not: null } },
-                        { pendingAmountStored: { lt: "1" } },
-                        { pendingAmountStored: { gte: "0" } }
-                    ]
-                }
-            ]
-        },
-        select: {
-            id: true,
-            oldId: true,
-            pendingAmountStored: true,
-            payments: {
-                select: {
-                    receivedAt: true
-                },
-                orderBy: {
-                    receivedAt: 'desc'
-                }
-            }
-        }
-    });
-    
-    console.log(`📊 Préstamos pagados al 100% sin fecha de término: ${fullyPaidLoansWithoutFinish.length}`);
-    
-    if (fullyPaidLoansWithoutFinish.length > 0) {
-        // Preparar actualizaciones
-        const updatePromises = fullyPaidLoansWithoutFinish
-            .filter(loan => loan.payments && loan.payments.length > 0)
-            .map(loan => {
-                // Obtener la fecha del último pago
-                const lastPaymentDate = loan.payments[0].receivedAt; // Ya ordenado DESC
-                
-                
-                return prisma.loan.update({
-                    where: { id: loan.id },
-                    data: {
-                        finishedDate: lastPaymentDate,
-                        status: 'FINISHED' // También actualizar el status
-                    }
-                });
-            });
-        
-        // Ejecutar actualizaciones en batches para mejor performance
-        if (updatePromises.length > 0) {
-            const batches = chunkArray(updatePromises, 200);
-            let totalUpdated = 0;
-            
-            for (const batch of batches) {
-                await prisma.$transaction(batch);
-                totalUpdated += batch.length;
-            }
-            
-            console.log(`✅ Actualizados ${updatePromises.length} préstamos con finishedDate automático`);
-            
-            // Log de verificación
-            const verificationSample = fullyPaidLoansWithoutFinish.slice(0, 5);
-            if (verificationSample.length > 0) {
-                console.log('📋 Muestra de préstamos actualizados:');
-                for (const loan of verificationSample) {
-                    const updated = await prisma.loan.findUnique({
-                        where: { id: loan.id },
-                        select: { oldId: true, finishedDate: true, status: true, pendingAmountStored: true }
-                    });
-                    console.log(`   - ${updated?.oldId}: finishedDate=${updated?.finishedDate}, status=${updated?.status}, pendiente=${updated?.pendingAmountStored}`);
-                }
-            }
-        }
-    } else {
-        console.log('✅ No hay préstamos pagados al 100% sin fecha de término');
-    }
-    
-    console.log('🔍 ================================================\n');
-    }
+     // LÓGICA CORREGIDA: Establecer finishedDate según el tipo de crédito
+     {
+         console.log('\n🔍 ========== ESTABLECIENDO FINISHED DATE SEGÚN TIPO ==========');
+         
+         // Obtener todos los préstamos de la ruta con sus pagos
+         const allRouteLoans = await prisma.loan.findMany({
+             where: { snapshotRouteId: snapshotData.routeId },
+             select: {
+                 id: true,
+                 oldId: true,
+                 finishedDate: true,
+                 status: true,
+                 pendingAmountStored: true,
+                 previousLoanId: true,
+                 signDate: true,
+                 payments: {
+                     select: {
+                         receivedAt: true
+                     },
+                     orderBy: {
+                         receivedAt: 'desc'
+                     }
+                 }
+             }
+         });
+         
+         // Crear mapa de préstamos renovados (hijos que referencian a padres)
+         const renovatedLoansMap = new Map<string, string>(); // parentId -> childId
+         allRouteLoans.forEach(loan => {
+             if (loan.previousLoanId) {
+                 renovatedLoansMap.set(loan.previousLoanId, loan.id);
+             }
+         });
+         
+         console.log(`📊 Total de préstamos en la ruta: ${allRouteLoans.length}`);
+         console.log(`📊 Préstamos que fueron renovados: ${renovatedLoansMap.size}`);
+         
+         // LÓGICA CORREGIDA: Verificar si se terminó ANTES de renovarse
+         const loansToUpdate = allRouteLoans.filter(loan => 
+             loan.payments && loan.payments.length > 0 && 
+             loan.pendingAmountStored && 
+             (loan.pendingAmountStored.toString() === "0" || 
+              loan.pendingAmountStored.toString() === "0.00" || 
+              (parseFloat(loan.pendingAmountStored.toString()) < 1 && parseFloat(loan.pendingAmountStored.toString()) >= 0))
+         );
+         
+         // AGREGAR: Créditos renovados que no tienen finishedDate Y no están en loansToUpdate
+         const renovatedLoansWithoutFinishedDate = allRouteLoans.filter(loan => 
+             renovatedLoansMap.has(loan.id) && // Fue renovado
+             !loan.finishedDate && // No tiene finishedDate
+             !loansToUpdate.some(ltu => ltu.id === loan.id) // No está en loansToUpdate
+         );
+         
+         console.log(`📊 Préstamos terminados de pagar (con pagos): ${loansToUpdate.length}`);
+         console.log(`📊 Préstamos renovados sin finishedDate: ${renovatedLoansWithoutFinishedDate.length}`);
+         
+         // Verificar que no haya conflictos
+         const conflictIds = loansToUpdate.filter(loan => 
+             renovatedLoansWithoutFinishedDate.some(rl => rl.id === loan.id)
+         ).map(loan => loan.oldId);
+         
+         if (conflictIds.length > 0) {
+             console.log(`⚠️ CONFLICTO DETECTADO: ${conflictIds.length} préstamos en ambos grupos:`, conflictIds);
+         } else {
+             console.log(`✅ Sin conflictos: no hay préstamos en ambos grupos`);
+         }
+         
+         // ACTUALIZAR: Lógica correcta según reglas
+         const updates = loansToUpdate.map(loan => {
+             const lastPaymentDate = loan.payments![0].receivedAt; // Ya ordenado DESC
+             const isRenovated = renovatedLoansMap.has(loan.id);
+             
+             let finishedDate: Date;
+             let status = 'FINISHED';
+             
+             if (isRenovated) {
+                 // CRÉDITO RENOVADO: Verificar si se terminó ANTES de renovarse
+                 const childLoanId = renovatedLoansMap.get(loan.id);
+                 const childLoan = allRouteLoans.find(l => l.id === childLoanId);
+                 
+                 if (childLoan && childLoan.signDate) {
+                     const renovationDate = new Date(childLoan.signDate as Date);
+                     const lastPayment = new Date(lastPaymentDate as Date);
+                     
+                     // Si el último pago es ANTES de la renovación, usar fecha del último pago
+                     if (lastPayment < renovationDate) {
+                         finishedDate = adjustDateForMexico(lastPaymentDate as Date) || new Date(lastPaymentDate as Date);
+                         console.log(`✅ CRÉDITO TERMINADO ANTES DE RENOVAR: ${loan.oldId} - Último pago: ${lastPaymentDate} (antes de renovación: ${renovationDate})`);
+                     } else {
+                         // Si el último pago es DESPUÉS de la renovación, usar fecha de renovación
+                         finishedDate = adjustDateForMexico(renovationDate) || renovationDate;
+                         console.log(`🔄 CRÉDITO RENOVADO: ${loan.oldId} - Fecha renovación: ${renovationDate} (último pago después: ${lastPaymentDate})`);
+                     }
+                 } else {
+                     // Fallback: usar fecha del último pago
+                     finishedDate = adjustDateForMexico(lastPaymentDate as Date) || new Date(lastPaymentDate as Date);
+                     console.log(`⚠️ CRÉDITO RENOVADO SIN FECHA: ${loan.oldId} - Usando último pago: ${lastPaymentDate}`);
+                 }
+             } else {
+                 // CRÉDITO NO RENOVADO: Usar fecha del último pago
+                 finishedDate = adjustDateForMexico(lastPaymentDate as Date) || new Date(lastPaymentDate as Date);
+                 console.log(`✅ CRÉDITO TERMINADO: ${loan.oldId} - Último pago: ${lastPaymentDate}`);
+             }
+             
+             return prisma.loan.update({
+                 where: { id: loan.id },
+                 data: {
+                     finishedDate,
+                     status
+                 }
+             });
+         });
+         
+         // ACTUALIZAR: Créditos renovados sin finishedDate
+         const renovatedUpdates = renovatedLoansWithoutFinishedDate.map(loan => {
+             const childLoanId = renovatedLoansMap.get(loan.id);
+             const childLoan = allRouteLoans.find(l => l.id === childLoanId);
+             
+             if (!childLoan || !childLoan.signDate) {
+                 console.log(`⚠️ CRÉDITO RENOVADO SIN FECHA DE RENOVACIÓN: ${loan.oldId}`);
+                 return null;
+             }
+             
+             // Usar fecha de renovación
+             const renovationDate = new Date(childLoan.signDate as Date);
+             const finishedDate = adjustDateForMexico(renovationDate) || renovationDate;
+             
+             console.log(`🔄 ESTABLECIENDO FINISHED DATE PARA RENOVADO: ${loan.oldId} - Fecha renovación: ${renovationDate}`);
+             
+             return prisma.loan.update({
+                 where: { id: loan.id },
+                 data: {
+                     finishedDate,
+                     status: 'FINISHED'
+                 }
+             });
+         }).filter((u): u is ReturnType<typeof prisma.loan.update> => Boolean(u));
+         
+         // Ejecutar actualizaciones en batches
+         const allUpdates = [...updates, ...renovatedUpdates];
+         if (allUpdates.length > 0) {
+             const batches = chunkArray(allUpdates, 200);
+             let totalUpdated = 0;
+             
+             for (const batch of batches) {
+                 await prisma.$transaction(batch);
+                 totalUpdated += batch.length;
+             }
+             
+             console.log(`✅ Actualizados ${updates.length} préstamos terminados con finishedDate = último pago`);
+             console.log(`✅ Actualizados ${renovatedUpdates.length} préstamos renovados con finishedDate = fecha de renovación`);
+             
+             // Log de verificación
+             const verificationSample = [...loansToUpdate, ...renovatedLoansWithoutFinishedDate].slice(0, 5);
+             if (verificationSample.length > 0) {
+                 console.log('📋 Muestra de préstamos actualizados:');
+                 for (const loan of verificationSample) {
+                     const updated = await prisma.loan.findUnique({
+                         where: { id: loan.id },
+                         select: { oldId: true, finishedDate: true, status: true, pendingAmountStored: true }
+                     });
+                     console.log(`   - ${updated?.oldId}: finishedDate=${updated?.finishedDate}, status=${updated?.status}, pendiente=${updated?.pendingAmountStored}`);
+                 }
+             }
+         } else {
+             console.log('✅ No hay préstamos para actualizar');
+         }
+         
+         console.log('🔍 ================================================\n');
+     }
 
     // Actualizar balances de cuentas (amount = ingresos - egresos) para TODAS las cuentas
     {
