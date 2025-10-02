@@ -3,7 +3,7 @@ import { cleanUpDb } from './utils';
 import { seedLoans } from './loan';
 import { seedExpenses } from './expenses';
 import { seedAccounts } from './account';
-import { seedLeads, extractLeadsData } from './leads';
+import { seedLeads, extractLeadsData, getGlobalLeadMapping, getLeadMappingStats, clearLeadMapping } from './leads';
 import { getYearResume } from './report/month';
 import { seedNomina } from './nomina';
 import * as readline from 'readline';
@@ -170,45 +170,43 @@ async function getRouteSnapshotData(routeId: string) {
     };
 }
 
-// Función para crear mapeo de oldId a realId usando el Excel
+// Función para crear mapeo de oldId a realId usando el sistema global
 async function createLeadMapping(routeId: string, excelFileName: string, routeName: string) {
-    // Extraer datos del Excel
-    const leadsData = extractLeadsData(excelFileName, routeName);
-    console.log(`📊 Total de leads extraídos del Excel: ${leadsData.length}`);
-    console.log(`📋 Primeros 5 leads del Excel:`, leadsData.slice(0, 5).map(l => ({ oldId: l.oldId, nombre: l.nombre, apellidos: l.apellidos })));
+    console.log('\n🗺️ ========== CREANDO MAPEO DE LEADS ==========');
     
-    // Obtener todos los empleados de la ruta
-    const employees = await prisma.employee.findMany({
-        where: { routesId: routeId },
-        include: { personalData: true }
-    });
-    console.log(`👥 Total de empleados en la ruta: ${employees.length}`);
-    console.log(`📋 Primeros 5 empleados:`, employees.slice(0, 5).map(e => ({ id: e.id, oldId: e.oldId, fullName: e.personalData?.fullName })));
+    // Usar el mapeo global que ya se creó durante seedLeads
+    const globalMapping = getGlobalLeadMapping();
     
-    // Crear mapeo de oldId a realId
-    const leadMapping: { [oldId: string]: string } = {};
-    
-    for (const excelLead of leadsData) {
-        const oldId = excelLead.oldId;
+    if (Object.keys(globalMapping).length > 0) {
         
-        // Buscar el empleado correspondiente en la base de datos
-        const employee = employees.find(emp => 
-            emp.oldId === oldId || 
-            emp.personalData?.fullName === `${excelLead.nombre} ${excelLead.apellidos}`
-        );
+        // Mostrar estadísticas del mapeo
+        const stats = getLeadMappingStats();        
+        // Mostrar algunos ejemplos del mapeo
+        const examples = Object.entries(globalMapping).slice(0, 5);
+        examples.forEach(([oldId, newId]) => {
+            console.log(`   ${oldId} -> ${newId}`);
+        });
         
-        if (employee) {
-            leadMapping[oldId] = employee.id;
-            console.log(`✅ Mapeo creado: ${oldId} -> ${employee.id} (${employee.personalData?.fullName})`);
-        } else {
-            console.log(`⚠️ No se encontró empleado para: ${excelLead.nombre} ${excelLead.apellidos} con oldId: ${oldId}`);
-        }
+        return globalMapping;
+    } else {
+        console.log('⚠️ No hay mapeo global disponible, creando mapeo desde base de datos...');
+        
+        // Fallback: crear mapeo desde la base de datos
+        const employees = await prisma.employee.findMany({
+            where: { routesId: routeId },
+            include: { personalData: true }
+        });
+        
+        const leadMapping: { [oldId: string]: string } = {};
+        employees.forEach(emp => {
+            if (emp.oldId) {
+                leadMapping[emp.oldId] = emp.id;
+            }
+        });
+        
+        console.log(`📊 Mapeo desde base de datos: ${Object.keys(leadMapping).length} mapeos`);
+        return leadMapping;
     }
-    
-    console.log(`📊 Total de mapeos creados: ${Object.keys(leadMapping).length}`);
-    console.log(`📋 Claves del mapeo:`, Object.keys(leadMapping));
-    
-    return leadMapping;
 }
 
 // Función para portafolio cleanup
@@ -305,6 +303,9 @@ async function processRoute(routeName?: string) {
 
     console.log(`🚀 Iniciando proceso para la ruta: ${routeName}`);
     console.log(`📊 Usando archivo Excel: ${excelFileName}`);
+    
+    // Limpiar el mapeo global al inicio de cada ruta para evitar conflictos
+    clearLeadMapping();
 
     // Obtener o crear las cuentas compartidas (solo si no existen o si se reseteó la DB)
     const sharedBankAccount = await getOrCreateSharedBankAccount();

@@ -2,6 +2,107 @@ import { prisma } from "../standaloneApp";
 import { convertExcelDate } from "../utils";
 const xlsx = require('xlsx');
 
+// ========== SISTEMA DE MAPEO GLOBAL DE LEADID ==========
+// Cache global para mantener el mapeo de oldId -> newId de leads
+// Esto evita conflictos cuando los mismos IDs aparecen en diferentes archivos Excel
+interface LeadMappingEntry {
+    oldId: string;
+    newId: string;
+    fullName: string;
+    routeName: string;
+    createdAt: Date;
+}
+
+// Cache global en memoria
+let globalLeadMapping: { [key: string]: LeadMappingEntry } = {};
+
+// Función para generar un ID único para el mapeo
+const generateUniqueMappingKey = (oldId: string, routeName: string): string => {
+    return `${routeName}-${oldId}`;
+};
+
+// Función para obtener o crear el mapeo de un lead
+export const getOrCreateLeadMapping = async (oldId: string, fullName: string, routeName: string): Promise<string> => {
+    const mappingKey = generateUniqueMappingKey(oldId, routeName);
+    
+    // Si ya existe en el cache, devolverlo
+    if (globalLeadMapping[mappingKey]) {
+        console.log(`🔄 Reutilizando mapeo existente: ${oldId} -> ${globalLeadMapping[mappingKey].newId} (${fullName})`);
+        return globalLeadMapping[mappingKey].newId;
+    }
+    
+    // Buscar si ya existe un lead con este oldId en la base de datos
+    const existingLead = await prisma.employee.findFirst({
+        where: {
+            oldId: oldId,
+            type: 'ROUTE_LEAD'
+        },
+        include: {
+            personalData: true
+        }
+    });
+    
+    if (existingLead) {
+        // Si existe, agregarlo al cache y devolverlo
+        globalLeadMapping[mappingKey] = {
+            oldId: oldId,
+            newId: existingLead.id,
+            fullName: existingLead.personalData?.fullName || fullName,
+            routeName: routeName,
+            createdAt: new Date()
+        };
+        console.log(`✅ Lead existente encontrado: ${oldId} -> ${existingLead.id} (${existingLead.personalData?.fullName})`);
+        return existingLead.id;
+    }
+    
+    // Si no existe, crear uno nuevo (esto se hará en la función seedLeads)
+    // Por ahora, generar un ID temporal que se reemplazará cuando se cree el lead
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    globalLeadMapping[mappingKey] = {
+        oldId: oldId,
+        newId: tempId,
+        fullName: fullName,
+        routeName: routeName,
+        createdAt: new Date()
+    };
+    console.log(`🆕 Nuevo mapeo temporal creado: ${oldId} -> ${tempId} (${fullName})`);
+    return tempId;
+};
+
+// Función para actualizar el mapeo cuando se crea un lead real
+export const updateLeadMapping = (oldId: string, routeName: string, realNewId: string): void => {
+    const mappingKey = generateUniqueMappingKey(oldId, routeName);
+    if (globalLeadMapping[mappingKey]) {
+        globalLeadMapping[mappingKey].newId = realNewId;
+        console.log(`🔄 Mapeo actualizado: ${oldId} -> ${realNewId} (${globalLeadMapping[mappingKey].fullName})`);
+    }
+};
+
+// Función para obtener el mapeo completo de leads
+export const getGlobalLeadMapping = (): { [key: string]: string } => {
+    const result: { [key: string]: string } = {};
+    Object.values(globalLeadMapping).forEach(entry => {
+        result[entry.oldId] = entry.newId;
+    });
+    return result;
+};
+
+// Función para limpiar el cache de mapeo
+export const clearLeadMapping = (): void => {
+    globalLeadMapping = {};
+    console.log('🧹 Cache de mapeo de leads limpiado');
+};
+
+// Función para obtener estadísticas del mapeo
+export const getLeadMappingStats = (): { totalMappings: number, routes: string[], details: LeadMappingEntry[] } => {
+    const routes = [...new Set(Object.values(globalLeadMapping).map(entry => entry.routeName))];
+    return {
+        totalMappings: Object.keys(globalLeadMapping).length,
+        routes: routes,
+        details: Object.values(globalLeadMapping)
+    };
+};
+
 interface ExcelLead {
     oldId: string;
     nombre: string;
@@ -171,117 +272,155 @@ export const seedLeads = async (routeId: string, routeName: string, excelFileNam
     
     console.log(`📊 Total de líderes extraídos del Excel: ${leadsData.length}`);
     
-    
-           // Tomar todos los líderes extraídos del Excel (sin filtrar por ruta)
-       const routeLeads = leadsData;
+    // Tomar todos los líderes extraídos del Excel (sin filtrar por ruta)
+    const routeLeads = leadsData;
 
-       console.log(`📊 Encontrados ${routeLeads.length} líderes del Excel (todos para la ruta "${routeName}")`);
-       console.log(`📋 Total de líderes activos extraídos: ${routeLeads.length}`);
-       
+    console.log(`📊 Encontrados ${routeLeads.length} líderes del Excel (todos para la ruta "${routeName}")`);
+    console.log(`📋 Total de líderes activos extraídos: ${routeLeads.length}`);
     
-           // Continuar con el proceso completo
+    // ========== SISTEMA DE MAPEO DE LEADS ==========
     
+    // Pre-crear todos los mapeos para evitar conflictos
+    const leadMappings: { [oldId: string]: string } = {};
+    
+    for (const lead of routeLeads) {
+        const fullName = `${lead.nombre} ${lead.apellidos}`;
+        const mappingId = await getOrCreateLeadMapping(lead.oldId, fullName, routeName);
+        leadMappings[lead.oldId] = mappingId;
+        console.log(`🗺️ Mapeo pre-creado: ${lead.oldId} -> ${mappingId} (${fullName})`);
+    }
+    
+    // Continuar con el proceso completo
     for (const lead of routeLeads) {
         console.log(`📝 Procesando líder: ${JSON.stringify(lead)}`);
         
-        // Obtener o crear la localidad para este líder
-        const location = await getOrCreateLocation(
-            lead.estado, 
-            lead.municipio, 
-            lead.localidad, 
-            routeId
-        );
+        // Verificar si el lead ya existe usando el mapeo
+        const mappingId = leadMappings[lead.oldId];
+        if (mappingId && mappingId.startsWith('temp-')) {
+            // Es un lead nuevo, crear en la base de datos
+            
+            // Obtener o crear la localidad para este líder
+            const location = await getOrCreateLocation(
+                lead.estado, 
+                lead.municipio, 
+                lead.localidad, 
+                routeId
+            );
 
-        // Crear el empleado con datos personales y dirección
-        const employeeData = {
-            routes: {
-                connect: {
-                    id: routeId,
-                }
-            },
-            oldId: lead.oldId,
-            personalData: {
-                create: {
-                    fullName: `${lead.nombre} ${lead.apellidos}`,
-                    birthDate: lead.fechaNacimiento,
-                    addresses: {
-                        create: {
-                            street: lead.calle || "Sin especificar",
-                            exteriorNumber: String(lead.numero) || "S/N",
-                            interiorNumber: "",
-                            postalCode: lead.codigoPostal || "00000",
-                            references: `Líder ${lead.nombre} ${lead.apellidos}`,
-                            location: {
-                                connect: {
-                                    id: location.id
-                                }
-                            }
-                        }
-                    },
-                    phones: lead.celular ? {
-                        create: {
-                            number: String(lead.celular)
-                        }
-                    } : undefined
-                }
-            },
-            type: 'ROUTE_LEAD',
-        };
-
-        /* console.log(`📝 Creando líder: ${lead.nombre} ${lead.apellidos} con dirección en ${lead.localidad}`); */
-        
-        const createdEmployee = await prisma.employee.create({
-            data: employeeData,
-            include: {
+            // Crear el empleado con datos personales y dirección
+            const employeeData = {
+                routes: {
+                    connect: {
+                        id: routeId,
+                    }
+                },
+                oldId: lead.oldId,
                 personalData: {
-                    include: {
+                    create: {
+                        fullName: `${lead.nombre} ${lead.apellidos}`,
+                        birthDate: lead.fechaNacimiento,
                         addresses: {
-                            include: {
+                            create: {
+                                street: lead.calle || "Sin especificar",
+                                exteriorNumber: String(lead.numero) || "S/N",
+                                interiorNumber: "",
+                                postalCode: lead.codigoPostal || "00000",
+                                references: `Líder ${lead.nombre} ${lead.apellidos}`,
                                 location: {
-                                    include: {
-                                        municipality: {
-                                            include: {
-                                                state: true
-                                            }
-                                        }
+                                    connect: {
+                                        id: location.id
                                     }
                                 }
                             }
                         },
-                        phones: true
+                        phones: lead.celular ? {
+                            create: {
+                                number: String(lead.celular)
+                            }
+                        } : undefined
+                    }
+                },
+                type: 'ROUTE_LEAD',
+            };
+
+            const createdEmployee = await prisma.employee.create({
+                data: employeeData,
+                include: {
+                    personalData: {
+                        include: {
+                            addresses: {
+                                include: {
+                                    location: {
+                                        include: {
+                                            municipality: {
+                                                include: {
+                                                    state: true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            phones: true
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        // Generar clientCode único para PersonalData
-        if (createdEmployee.personalData?.id) {
-            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-            const length = 6;
-            const generate = () => Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
-            let attempts = 0;
-            let code = generate();
-            try {
-                while (attempts < 5) {
-                    const existing = await prisma.personalData.findUnique({ where: { clientCode: code } as any });
-                    if (!existing) break;
-                    code = generate();
-                    attempts++;
+            // Actualizar el mapeo con el ID real
+            updateLeadMapping(lead.oldId, routeName, createdEmployee.id);
+            leadMappings[lead.oldId] = createdEmployee.id;
+
+            // Generar clientCode único para PersonalData
+            if (createdEmployee.personalData?.id) {
+                const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                const length = 6;
+                const generate = () => Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+                let attempts = 0;
+                let code = generate();
+                try {
+                    while (attempts < 5) {
+                        const existing = await prisma.personalData.findUnique({ where: { clientCode: code } as any });
+                        if (!existing) break;
+                        code = generate();
+                        attempts++;
+                    }
+                    await prisma.personalData.update({ where: { id: createdEmployee.personalData.id }, data: { clientCode: code } as any });
+                } catch (e) {
+                    console.error('Error generating clientCode:', e);
                 }
-                await prisma.personalData.update({ where: { id: createdEmployee.personalData.id }, data: { clientCode: code } as any });
-            } catch (e) {
-                console.error('Error generating clientCode:', e);
             }
-        }
 
-        console.log(`✅ Líder creado: ${createdEmployee.personalData?.fullName} con ${createdEmployee.personalData?.addresses?.length || 0} direcciones`);
-        console.log(`📍 Dirección: ${lead.calle} ${lead.numero}, ${lead.localidad}, ${lead.municipio}, ${lead.estado}`);
-    };
+            console.log(`✅ Líder creado: ${createdEmployee.personalData?.fullName} con ${createdEmployee.personalData?.addresses?.length || 0} direcciones`);
+            console.log(`📍 Dirección: ${lead.calle} ${lead.numero}, ${lead.localidad}, ${lead.municipio}, ${lead.estado}`);
+        } else {
+            // El lead ya existe, solo mostrar información
+            console.log(`✅ Líder ya existe: ${lead.nombre} ${lead.apellidos} (ID: ${mappingId})`);
+        }
+    }
+    
+    // Mostrar estadísticas finales del mapeo
+    const stats = getLeadMappingStats();
+    console.log('\n📊 ========== ESTADÍSTICAS FINALES DEL MAPEO ==========');
+    console.log(`📈 Total de mapeos: ${stats.totalMappings}`);
+    console.log(`🗺️ Rutas procesadas: ${stats.routes.join(', ')}`);
+    console.log('📊 ================================================\n');
 }
 
 export const getEmployeeIdsMap = async (): Promise<{ [key: string]: string }> => {
+    // Usar el mapeo global si está disponible, sino buscar en la base de datos
+    const globalMapping = getGlobalLeadMapping();
+    if (Object.keys(globalMapping).length > 0) {
+        console.log(`🗺️ Usando mapeo global de leads: ${Object.keys(globalMapping).length} mapeos`);
+        return globalMapping;
+    }
+    
+    // Fallback: buscar en la base de datos
+    console.log('🔍 Mapeo global vacío, buscando en base de datos...');
     const employeeIdsMap: { [key: string]: string } = {};
-    const employeesFromDb = await prisma.employee.findMany({});
+    const employeesFromDb = await prisma.employee.findMany({
+        where: { type: 'ROUTE_LEAD' }
+    });
     employeesFromDb.forEach((e) => {
         if (e.oldId) {
             employeeIdsMap[e.oldId] = e.id;

@@ -1,6 +1,6 @@
 import { getEmployeeIdsMap } from "../leads";
 import { prisma } from "../standaloneApp";
-import { chunkArray, convertExcelDate, groupPaymentsByOldLoanId, leads, clearAvalCache, createAllUniqueAvales, getOrAssignAvalId, cleanExistingDuplicates, forceCleanAdelina, forceCleanAllDuplicates, testFunction } from "../utils";
+import { chunkArray, convertExcelDate, groupPaymentsByOldLoanId, leads, clearAvalCache, createAllUniqueAvales, getOrAssignAvalId, cleanExistingDuplicates, forceCleanAdelina, forceCleanAllDuplicates, testFunction, normalizeName } from "../utils";
 import { ExcelLoanRelationship, ExcelRow, Loan } from "./types";
 import { Payments } from "../payments/types";
 import { extractPaymentData } from "../payments";
@@ -60,7 +60,7 @@ const getOrCreateBorrower = async (fullName: string, titularPhone?: string): Pro
         throw new Error('❌ Nombre vacío, no se puede crear borrower');
     }
 
-    const normalizedName = fullName.trim();
+    const normalizedName = normalizeName(fullName);
 
     // Lógica de cache y locks (sin cambios)
     if (borrowerLocks.has(normalizedName)) {
@@ -204,8 +204,8 @@ const extractLoanData = (routeName: string, excelFileName: string) => {
                 status: row[3],
                 givedAmount: row[4],
                 requestedAmount: row[5],
-                noWeeks: row[6],
-                interestRate: row[7],
+                noWeeks: Number(row[6]) || 0,
+                interestRate: Number(row[7]) || 0,
                 finished: row[8],
                 finishedDate: row[26] ? convertExcelDate(row[26]) : null,
                 leadId: row[18],
@@ -232,9 +232,16 @@ const extractLoanData = (routeName: string, excelFileName: string) => {
                     avalPhone: obj.avalPhone,
                     rawAvalPhone: row[28],
                     avalName: obj.avalName,
-                    rawAvalName: row[27]
+                    rawAvalName: row[27],
+                    // DEBUG: Verificar columnas G y H
+                    noWeeks: obj.noWeeks,
+                    rawNoWeeks: row[6],
+                    interestRate: obj.interestRate,
+                    rawInterestRate: row[7]
                 });
             }
+            
+            // DEBUG: Verificar extracción de columnas G y H para los primeros 5 préstamos
             
             return obj as Loan;
         });
@@ -245,6 +252,27 @@ const extractLoanData = (routeName: string, excelFileName: string) => {
         return 0; // Mantener el orden si las fechas son nulas
     });
     console.log('loansData', loansData.length);
+    
+    // DEBUG: Mostrar resumen de los datos extraídos
+    
+    // Mostrar estadísticas de semanas y tasas
+    const weeksStats = loansData.reduce((acc: { [key: number]: number }, loan: Loan) => {
+        acc[loan.noWeeks] = (acc[loan.noWeeks] || 0) + 1;
+        return acc;
+    }, {});
+
+    const rateStats = loansData.reduce((acc: { [key: string]: number }, loan: Loan) => {
+        const rateKey = `${(loan.interestRate * 100).toFixed(1)}%`;
+        acc[rateKey] = (acc[rateKey] || 0) + 1;
+        return acc;
+    }, {});
+
+
+    // Mostrar algunos ejemplos
+    loansData.slice(0, 3).forEach((loan: Loan, index: number) => {
+        console.log(`   ${index + 1}. ID: ${loan.id}, Nombre: ${loan.fullName}, Semanas: ${loan.noWeeks}, Tasa: ${(loan.interestRate * 100).toFixed(1)}%`);
+    });
+    
     // Filtrar solo los loans que tengan el routeName en la columna AQ
     /* const filteredLoans = loansData.filter((loan: Loan) => {
         const routeColumnIndex = xlsx.utils.decode_col('AQ'); // Columna AQ
@@ -450,8 +478,13 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
     const renovatedLoans = loans.filter(item => item && item.previousLoanId !== undefined);
     const notRenovatedLoans = loans.filter(item => item && item.previousLoanId === undefined);
-    console.log('notRenovatedLoans', notRenovatedLoans.length);
-    console.log('renovatedLoans', renovatedLoans.length);
+    const totalLoansInExcel = loans.length;
+    
+    console.log('📊 ========== RESUMEN DE PRÉSTAMOS EN EXCEL ==========');
+    console.log(`📋 Total de préstamos en Excel: ${totalLoansInExcel}`);
+    console.log(`📋 Préstamos no renovados: ${notRenovatedLoans.length}`);
+    console.log(`📋 Préstamos renovados: ${renovatedLoans.length}`);
+    console.log('📊 ================================================\n');
 
     // LOG DE VALIDACIÓN DE DUPLICADOS
     console.log('\n🔍 ========== VALIDACIÓN DE DUPLICADOS ==========');
@@ -463,71 +496,96 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
 
 
-    //Create the loanTypes - Verificar si ya existen antes de crear
-    let fourteenWeeksId = await prisma.loantype.findFirst({
-        where: {
-            name: '14 semanas/40%',
-            weekDuration: 14,
-            rate: '0.4',
-        }
-    });
+    // ========== CREACIÓN OPTIMIZADA DE LOANTYPES ==========
+    console.log('\n🔧 ========== CREANDO LOANTYPES ==========');
     
-    if (!fourteenWeeksId) {
-        fourteenWeeksId = await prisma.loantype.create({
-        data: {
-            name: '14 semanas/40%',
-            weekDuration: 14,
-            rate: '0.4',
-            loanGrantedComission: '80',
-            loanPaymentComission: '8',
-        }
-    });
-        console.log('✅ Creado loantype: 14 semanas/40%');
-    } else {
-        console.log('🔄 Reutilizando loantype existente: 14 semanas/40%');
-    }
+    const loanTypesConfig = [
+        { weeks: 3, rate: '0.1', name: '3 semanas/0.1%' },
+        { weeks: 9, rate: '0', name: '9 semanas/0%' },
+        { weeks: 10, rate: '0', name: '10 semanas/0%' },
+        { weeks: 12, rate: '0.2', name: '12 semanas/0.2%' },
+        { weeks: 14, rate: '0.4', name: '14 semanas/40%', loanGrantedComission: '80', loanPaymentComission: '8' },
+        { weeks: 15, rate: '0', name: '15 semanas/0%' },
+        { weeks: 20, rate: '0.3', name: '20 semanas/0.3%' },
+        { weeks: 20, rate: '0.2', name: '20 semanas/0.2%' },
+        { weeks: 20, rate: '0', name: '20 semanas/0%' },
+        { weeks: 20, rate: '0.15', name: '20 semanas/0.15%' },
+        { weeks: 40, rate: '0', name: '40 semanas/0%' },
+        { weeks: 60, rate: '0', name: '60 semanas/0%' }
+    ];
 
-    let teennWeeksId = await prisma.loantype.findFirst({
-        where: {
-            name: '10 semanas/0%',
-            weekDuration: 10,
-            rate: '0',
-        }
-    });
-    
-    if (!teennWeeksId) {
-        teennWeeksId = await prisma.loantype.create({
-            data: {
-                name: '10 semanas/0%',
-                weekDuration: 10,
-                rate: '0',
+    const loanTypesMap: { [key: string]: any } = {};
+
+    for (const config of loanTypesConfig) {
+        const key = `${config.weeks}-${config.rate}`;
+        
+        // Buscar si ya existe
+        let existingLoanType = await prisma.loantype.findFirst({
+            where: {
+                weekDuration: config.weeks,
+                rate: config.rate
             }
         });
-        console.log('✅ Creado loantype: 10 semanas/0%');
-    } else {
-        console.log('🔄 Reutilizando loantype existente: 10 semanas/0%');
+
+        if (!existingLoanType) {
+            // Crear nuevo loantype
+            const createData: any = {
+                name: config.name,
+                weekDuration: config.weeks,
+                rate: config.rate
+            };
+
+            // Agregar comisiones solo si están definidas
+            if (config.loanGrantedComission) {
+                createData.loanGrantedComission = config.loanGrantedComission;
+            }
+            if (config.loanPaymentComission) {
+                createData.loanPaymentComission = config.loanPaymentComission;
+            }
+
+            existingLoanType = await prisma.loantype.create({ data: createData });
+        } else {
+        }
+
+        loanTypesMap[key] = existingLoanType;
     }
 
-    let twentyWeeksId = await prisma.loantype.findFirst({
-        where: {
-            name: '20 semanas/0%',
-            weekDuration: 20,
-            rate: '0.1',
-        }
-    });
     
-    if (!twentyWeeksId) {
-        twentyWeeksId = await prisma.loantype.create({
-            data: {
-                name: '20 semanas/0%',
-                weekDuration: 20,
-                rate: '0.1',
+    // DEBUG: Mostrar resumen de todos los loantypes creados
+    Object.entries(loanTypesMap).forEach(([key, loanType], index) => {
+        console.log(`   ${index + 1}. Clave: "${key}" -> ${loanType.name} (${loanType.weekDuration} semanas, ${loanType.rate})`);
+    });
+
+    // Función para encontrar el loantype correcto basándose en semanas y porcentaje
+    const findLoanType = (weeks: number, interestRate: number) => {
+        // Convertir el interestRate a string para hacer la búsqueda
+        const rateString = interestRate.toString();
+        
+        // DEBUG: Mostrar valores de entrada
+
+        const key = `${weeks}-${rateString}`;
+        
+        const loanType = loanTypesMap[key];
+        
+        if (!loanType) {
+            
+            // Buscar el más cercano (mismo número de semanas, tasa más cercana)
+            const sameWeeksTypes = Object.entries(loanTypesMap)
+                .filter(([k]) => k.startsWith(`${weeks}-`))
+                .map(([k, v]) => ({ key: k, type: v, rate: parseFloat(k.split('-')[1]) }))
+                .sort((a, b) => Math.abs(a.rate - interestRate) - Math.abs(b.rate - interestRate));
+            
+            
+            if (sameWeeksTypes.length > 0) {
+                return sameWeeksTypes[0].type;
             }
-        });
-        console.log('✅ Creado loantype: 20 semanas/0%');
-    } else {
-        console.log('🔄 Reutilizando loantype existente: 20 semanas/0%');
-    }
+            
+            // Fallback: usar el de 10 semanas/0% como default
+            return loanTypesMap['10-0'];
+        }
+        
+        return loanType;
+    };
 
 
     const groupedPayments = groupPaymentsByOldLoanId(payments);
@@ -541,11 +599,13 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
     }
     // Usar leadMapping si está disponible, sino usar employeeIdsMap como fallback
     let employeeIdsMap: { [key: string]: string } = {};
+    console.log('leadMapping', leadMapping);
     if (leadMapping) {
         employeeIdsMap = leadMapping;
     } else {
         employeeIdsMap = await getEmployeeIdsMap();
     }
+
     if (!employeeIdsMap || Object.keys(employeeIdsMap).length === 0) {
         console.log('⚠️ No hay mapeo de empleados disponible');
         return;
@@ -601,6 +661,20 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         let processedLoans = 0;
         console.log(`\n🔄 ========== PROCESANDO BATCH ${batchIndex + 1}/${batches.length} ==========`);
         console.log(`📋 Elementos en este batch: ${batch.length}`);
+        
+        // DEBUG: Mostrar información del mapeo de leads
+        console.log(`🔍 DEBUG: Total de leads en employeeIdsMap: ${Object.keys(employeeIdsMap).length}`);
+        console.log(`🔍 DEBUG: Primeros 5 leads disponibles:`, Object.entries(employeeIdsMap).slice(0, 5));
+        
+        // DEBUG: Mostrar información de los préstamos en este batch
+        console.log(`🔍 DEBUG: Primeros 5 préstamos en batch:`, batch.slice(0, 5).map(item => ({
+            id: item.id,
+            fullName: item.fullName,
+            leadId: item.leadId,
+            givedDate: item.givedDate,
+            givedAmount: item.givedAmount
+        })));
+        
         const transactionPromises = batch.map(async (item) => {
             /* if (!groupedPayments[item.id]) {
                 return;
@@ -609,7 +683,9 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             // Obtener el ID del lead específico para este préstamo
             const specificLeadId = employeeIdsMap[item.leadId.toString()];
             if (!specificLeadId) {
-                // Log removido para limpiar la consola
+                console.log(`⚠️ PRÉSTAMO SIN LEAD: ID ${item.id} - LeadId ${item.leadId} no encontrado en mapeo`);
+                console.log(`   Cliente: ${item.fullName}, LeadId buscado: ${item.leadId}`);
+                console.log(`   Leads disponibles:`, Object.keys(employeeIdsMap).slice(0, 10));
                 loansWithoutLead++;
                 return Promise.resolve(null); // Return resolved null to filter later
             }
@@ -621,14 +697,14 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             // }
 
             // VALIDACIÓN DE DUPLICADOS: Verificar si el préstamo ya existe
-            /* console.log(`🔍 Verificando duplicado para préstamo: ${item.id} - ${item.fullName}`); */
+            console.log(`🔍 Verificando duplicado para préstamo: ${item.id} - ${item.fullName}`);
             const isDuplicate = await checkLoanDuplicate(item, snapshotData.routeName);
             if (isDuplicate) {
-                /* console.log(`⏭️ OMITIENDO PRÉSTAMO DUPLICADO: ${item.id} - ${item.fullName}`); */
                 loansSkippedDuplicates++;
                 return Promise.resolve(null); // Omitir este préstamo
             } else {
-                /* console.log(`✅ PRÉSTAMO ÚNICO: ${item.id} - ${item.fullName} (procesando...)`); */
+                const selectedLoanType = findLoanType(item.noWeeks, item.interestRate);
+                
             }
 
             // DETECCIÓN DE CLIENTES FALCO: Si el nombre contiene "falco " (con espacio)
@@ -688,7 +764,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     },
                     loantype: {
                         connect: {
-                            id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
+                            id: findLoanType(item.noWeeks, item.interestRate).id,
                         }
                     },
                     lead: {
@@ -706,7 +782,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                     payments: {
                         create: paymentsForLoan.map(payment => {
 
-                            const loanType = item.noWeeks === 14 ? fourteenWeeksId : item.noWeeks === 20 ? twentyWeeksId : teennWeeksId;
+                            const loanType = findLoanType(item.noWeeks, item.interestRate);
 
                             const baseProfit = Number(item.requestedAmount) * (loanType.rate ? Number(loanType.rate) : 0);
                             const rate = loanType.rate ? Number(loanType.rate) : 0;
@@ -781,6 +857,9 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         const results = await Promise.all(transactionPromises);
         const validLoans = results.filter(item => item !== null && item !== undefined);
 
+        // DEBUG: Mostrar estadísticas detalladas del batch
+        
+
         // Línea 512 - Verificar si hay préstamos válidos
         if (validLoans.length > 0) {
             try {
@@ -791,6 +870,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             }
         } else {
             console.log(`⚠️ Batch sin préstamos válidos para procesar`);
+            
         }
 
         // RESUMEN DEL BATCH
@@ -973,7 +1053,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
             /* console.log('====5805===', previousLoan, loanIdsMap); */
         }
 
-        const loanType = item.noWeeks === 14 ? fourteenWeeksId : item.noWeeks === 20 ? twentyWeeksId : teennWeeksId;
+        const loanType = findLoanType(item.noWeeks, item.interestRate);
         const rate = loanType.rate ? Number(loanType.rate) : 0;
         const previousLoanProfitAmount = previousLoan?.profitAmount ? Number(previousLoan.profitAmount) : 0;
         const payedProfitFromPreviousLoan = previousLoan?.payments.reduce((acc: number, payment: any) => {
@@ -1044,7 +1124,7 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 badDebtDate: adjustDateForMexico(item.badDebtDate),
                 loantype: {
                     connect: {
-                        id: item.noWeeks === 14 ? fourteenWeeksId.id : item.noWeeks === 20 ? twentyWeeksId.id : teennWeeksId.id,
+                        id: findLoanType(item.noWeeks, item.interestRate).id,
                     },
                 },
                 lead: {
@@ -1532,7 +1612,8 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
                 const incomeSum = Number(incomes._sum.amount ?? 0);
                 const expenseSum = Number(expenses._sum.amount ?? 0);
                 const balance = incomeSum - expenseSum;
-                return prisma.account.update({ where: { id: acc.id }, data: { amount: balance.toFixed(4) } });
+                //return prisma.account.update({ where: { id: acc.id }, data: { amount: balance.toFixed(4) } });
+                return null;
             }));
             if (updates.length) {
                 console.log(`✅ Balances de cuentas actualizados (global): ${updates.length}`);
@@ -1633,12 +1714,27 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
 
     // REPORTE FINAL DE PRÉSTAMOS PROCESADOS
     console.log('\n📊 ========== REPORTE FINAL DE PRÉSTAMOS PROCESADOS ==========');
+    console.log(`📋 Total de préstamos en Excel: ${totalLoansInExcel}`);
     console.log(`✅ Total de préstamos normales procesados: ${loansProcessed}`);
     console.log(`🔄 Total de préstamos renovados procesados: ${renovatedLoansProcessed}`);
     console.log(`⏭️ Total de préstamos omitidos por duplicados: ${loansSkippedDuplicates}`);
     console.log(`⚠️ Total de préstamos sin lead: ${loansWithoutLead}`);
     console.log(`🚨 Total de transacciones FALCO_LOSS creadas: ${falcoLossTransactionsCreated}`);
     console.log(`📈 Total de préstamos únicos creados: ${loansProcessed + renovatedLoansProcessed}`);
+    
+    // Verificación de integridad
+    const totalProcessed = loansProcessed + renovatedLoansProcessed + loansSkippedDuplicates + loansWithoutLead + falcoLossTransactionsCreated;
+    console.log(`\n🔍 VERIFICACIÓN DE INTEGRIDAD:`);
+    console.log(`   Total procesado: ${totalProcessed}`);
+    console.log(`   Total en Excel: ${totalLoansInExcel}`);
+    console.log(`   Diferencia: ${totalLoansInExcel - totalProcessed}`);
+    
+    if (totalProcessed === totalLoansInExcel) {
+        console.log(`✅ PERFECTO: Todos los préstamos del Excel fueron procesados`);
+    } else {
+        console.log(`⚠️ ADVERTENCIA: Hay ${totalLoansInExcel - totalProcessed} préstamos no contabilizados`);
+    }
+    
     console.log('📊 ============================================================\n');
 
     // REPORTE FINAL DEL CACHE DE BORROWERS
@@ -1652,6 +1748,12 @@ const saveDataToDB = async (loans: Loan[], cashAccountId: string, bankAccount: s
         }); */
     }
     console.log('📊 ============================================================\n');
+
+    // REPORTE DE LOANTYPES UTILIZADOS
+    
+    Object.entries(loanTypesMap).forEach(([key, loanType], index) => {
+        console.log(`   ${index + 1}. ${loanType.name} (${loanType.weekDuration} semanas, ${(Number(loanType.rate) * 100).toFixed(1)}%)`);
+    });
 
 };
 

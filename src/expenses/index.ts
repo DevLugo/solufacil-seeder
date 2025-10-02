@@ -204,6 +204,8 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                         }
                     },
                     expenseSource: (() => {
+                        if (item.description === "VIATICOS") return "VIATIC";
+                        if (item.description === "SUELDO") return "EXTERNAL_SALARY";
                         if (item.description === "GASOLINA" || item.description === "TOKA") {
                             return "GASOLINE";
                         }
@@ -212,8 +214,7 @@ const saveExpensesOnDB = async (data: Expense[], cashAcountId: string, bankAccou
                         if (item.accountType === "GASTO BANCO") return "BANK_EXPENSE";
                         if (item.accountType === "GASTO SOCIO") return "EMPLOYEE_EXPENSE";
                         
-                        /* if (item.description === "VIATICOS") return "VIATIC"; */
-                        /* if (item.description === "SUELDO") return "EXTERNAL_SALARY"; */
+                        
                         return "GENERAL_EXPENSE";
                     })(),
 
